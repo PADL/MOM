@@ -1,0 +1,4 @@
+module Surrogate {
+    umbrella header "Surrogate/Surrogate.h"
+    export *
+}
