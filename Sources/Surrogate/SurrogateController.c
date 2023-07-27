@@ -279,11 +279,15 @@ setDefaultOptionString(MOMControllerRef controller,
     }
 }
 
-MOMControllerRef
-MOMControllerCreate(CFAllocatorRef allocator,
-                    CFDictionaryRef options,
-                    CFRunLoopRef runloop,
-                    MOMStatus (^handler)(MOMControllerRef, MOMEvent, CFMutableArrayRef))
+_Nullable
+MOMControllerRef MOMControllerCreate(_Nullable CFAllocatorRef allocator,
+                                     _Nullable CFDictionaryRef options,
+                                     _Nullable CFRunLoopRef runloop,
+                                     MOMStatus (^_Nonnull handler)(_Nonnull MOMControllerRef,
+                                                                   MOMPeerContext *,
+                                                                   MOMEvent,
+                                                                   _Nonnull CFArrayRef,
+                                                                   _Nullable MOMSendReplyCallback))
 {
     struct _MOMController *controller;
     

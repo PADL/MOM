@@ -39,8 +39,10 @@ struct _MOMController {
     atomic_intptr_t retainCount;
     _Nullable CFMutableDictionaryRef options;
     MOMStatus (^_Nullable handler)(_Nonnull MOMControllerRef controller,
+                                   struct _MOMPeerContext * _Nonnull,
                                    MOMEvent event,
-                                   _Nonnull CFMutableArrayRef params);
+                                   _Nonnull CFMutableArrayRef params,
+                                   _Nullable MOMSendReplyCallback sendReply);
     _Nullable CFRunLoopRef runLoop;
     _Nullable CFSocketRef tcpSocket;
     _Nullable CFSocketRef udpSocket;
@@ -141,6 +143,9 @@ _MOMSetMasterPeer(_Nonnull MOMControllerRef controller,
 bool
 _MOMSetAliveTime(_Nonnull MOMControllerRef controller,
                  int32_t aliveTime);
+
+void
+_MOMPeerContextRetain(MOMPeerContext *_Nonnull peerContext);
 
 void
 _MOMPeerContextRelease(MOMPeerContext *_Nonnull peerContext);

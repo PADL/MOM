@@ -70,6 +70,12 @@ __MOMPeerContextReleaseStrong(MOMPeerContext *peerContext)
 }
 
 void
+_MOMPeerContextRetain(MOMPeerContext *peerContext)
+{
+    __MOMPeerContextRetainStrong(peerContext);
+}
+
+void
 _MOMPeerContextRelease(MOMPeerContext *peerContext)
 {
     __MOMPeerContextReleaseStrong(peerContext);
@@ -137,7 +143,7 @@ _MOMSetPeerPortStatus(MOMControllerRef controller,
     CFArrayAppendValue(params, peerContext->peerName);
     if (error)
         CFArrayAppendValue(params, error);
-    controller->handler(controller, event, params);
+    controller->handler(controller, peerContext, event, params, NULL);
     CFRelease(params);
 }
 

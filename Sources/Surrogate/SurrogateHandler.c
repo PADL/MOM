@@ -35,7 +35,7 @@ getDeviceID(MOMControllerRef controller, MOMPeerContext *peerContext, MOMEvent e
 {
     insertOption(params, controller, kMOMDeviceName);
     insertOption(params, controller, kMOMDeviceID);
-    
+
     return kMOMStatusSuccess;
 }
 
@@ -269,6 +269,50 @@ isEventValidOnNonMaster(MOMEvent eventWithType)
     return MOMEventIsHostRequest(eventWithType) || event < kMOMEventGetKeyMode;
 }
 
+static MOMStatus
+sendReply(_Nonnull MOMControllerRef controller,
+          struct _MOMPeerContext *_Nonnull peerContext,
+          MOMEvent eventWithType,
+          MOMStatus status,
+          _Nonnull CFArrayRef eventParams)
+{
+    CFDataRef messageBuf;
+    CFMutableArrayRef replyParams;
+
+    replyParams = CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, eventParams);
+    if (replyParams == NULL) {
+        status = kMOMStatusNoMemory;
+        goto cleanup;
+    }
+
+    insertNumber(replyParams, (int32_t)status);
+
+    /* we need to send something back to the host */
+    messageBuf = _MOMCreateDeviceReplyMessage(eventWithType, replyParams);
+    if (messageBuf) {
+        if (MOMEventGetEvent(eventWithType) != kMOMEventAliveRequest) {
+            _MOMDebugLog(CFSTR("queued message %.*s"),
+                         (int)CFDataGetLength(messageBuf) - 1, (char *)CFDataGetBytePtr(messageBuf));
+        }
+        _MOMPeerContextRetain(peerContext);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            _MOMControllerEnqueueMessage(controller, peerContext, messageBuf);
+            _MOMPeerContextRelease(peerContext); /* matching +1 above */
+            CFRelease(messageBuf);
+        });
+        status = kMOMStatusSuccess;
+    } else {
+        status = kMOMStatusNoMemory;
+    }
+
+    CFRelease(replyParams);
+
+cleanup:
+    _MOMPeerContextRelease(peerContext); /* matching +1 in _MOMProcessEvent() */
+
+    return status;
+}
+
 MOMStatus
 _MOMProcessEvent(MOMControllerRef controller,
                  MOMPeerContext *peerContext,
@@ -290,7 +334,7 @@ _MOMProcessEvent(MOMControllerRef controller,
     replyParams = CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, eventParams);
     if (replyParams == NULL)
         return kMOMStatusNoMemory;
-    
+
     /* Check that the event type matches the handler */
     validTypes = _MOMEventHandlers[event].validTypes;
     
@@ -300,40 +344,35 @@ _MOMProcessEvent(MOMControllerRef controller,
     } else if (eventType & validTypes) {
         _MOMMessageHandler handler = _MOMEventHandlers[event].handler;
 
-        if (handler) 
+        status = kMOMStatusContinue;
+
+        if (handler) {
             status = handler(controller, peerContext, event, replyParams);
-        else
-            status = kMOMStatusContinue;
+            if (status != kMOMStatusContinue && MOMEventIsHostRequest(eventWithType)) {
+                _MOMPeerContextRetain(peerContext);
+                status = sendReply(controller, peerContext, eventWithType, status, replyParams);
+                /* this will always release peerContext */
+                assert(status != kMOMStatusContinue);
+            }
+        }
 
         /* second chance handler */
-        if (status == kMOMStatusContinue)
-            status = controller->handler(controller, event, replyParams);
+        if (status == kMOMStatusContinue) {
+            if (MOMEventIsHostRequest(eventWithType)) {
+                _MOMPeerContextRetain(peerContext);
+                status = controller->handler(controller, peerContext, eventWithType, replyParams, sendReply);
+                /* handler must call sendReply(), which will release peerContext */
+            } else {
+                status = controller->handler(controller, peerContext, eventWithType, replyParams, NULL);
+            }
+        }
         if (status == kMOMStatusContinue)
             status = kMOMStatusInvalidRequest;
     } else {
         status = kMOMStatusInvalidRequest;
     }
 
-    if (MOMEventIsHostRequest(eventWithType)) {
-        CFDataRef messageBuf;
-        
-        insertNumber(replyParams, (int32_t)status);
-
-        /* we need to send something back to the host */
-        messageBuf = _MOMCreateDeviceReplyMessage(eventWithType, replyParams);
-        if (messageBuf) {
-            if (event != kMOMEventAliveRequest) {
-                _MOMDebugLog(CFSTR("queued message %.*s"),
-                             (int)CFDataGetLength(messageBuf) - 1, (char *)CFDataGetBytePtr(messageBuf));
-            }
-            _MOMControllerEnqueueMessage(controller, peerContext, messageBuf);
-            CFRelease(messageBuf);
-        } else {
-            status = kMOMStatusNoMemory;
-        }
-    }
-    
     CFRelease(replyParams);
-    
+
     return status;
 }

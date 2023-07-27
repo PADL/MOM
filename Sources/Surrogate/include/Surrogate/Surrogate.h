@@ -161,13 +161,24 @@ extern _Nonnull const CFStringRef kMOMRecoveryFirmwareVersion;
 extern _Nonnull const CFStringRef kMOMRestrictToSpecifiedHost;
 extern _Nonnull const CFStringRef kMOMLocalInterfaceAddress; // contains struct sockaddr as CFDataRef
 
+struct _MOMPeerContext;
+
+typedef MOMStatus
+(*MOMSendReplyCallback)(_Nonnull MOMControllerRef,
+                        struct _MOMPeerContext * _Nonnull, /* handle/cookie */
+                        MOMEvent,
+                        MOMStatus,
+                        _Nonnull CFArrayRef);
+
 _Nullable
 MOMControllerRef MOMControllerCreate(_Nullable CFAllocatorRef allocator,
                                      _Nullable CFDictionaryRef options,
                                      _Nullable CFRunLoopRef runloop,
                                      MOMStatus (^_Nonnull handler)(_Nonnull MOMControllerRef,
+                                                                   struct _MOMPeerContext * _Nonnull,
                                                                    MOMEvent,
-                                                                   _Nonnull CFMutableArrayRef));
+                                                                   _Nonnull CFArrayRef,
+                                                                   _Nullable MOMSendReplyCallback));
 
 _Nonnull CFMutableDictionaryRef
 MOMControllerGetOptions(_Nonnull MOMControllerRef controller) CF_RETURNS_NOT_RETAINED;
