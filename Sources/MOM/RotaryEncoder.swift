@@ -38,7 +38,7 @@ public struct RotaryEncoder {
         return Int(absoluteDBValue * Self.Steps)
     }
 
-    mutating func rotate(by steps: Int) {
+    public mutating func rotate(by steps: Int) {
         if steps > 0 {
             rotationCount = rotationCount &+ UInt16(steps.magnitude)
         } else {
