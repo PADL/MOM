@@ -40,12 +40,14 @@ _MOMResolveHostRestrictionAndPerform(MOMControllerRef controller,
         const char *ipAddr = CFStringGetCStringPtr(hostRestriction, kCFStringEncodingUTF8);
         struct sockaddr_in sin = {
             .sin_family = AF_INET,
+#ifdef __APPLE__
             .sin_len = sizeof(sin)
+#endif
         };
-        
+
         if (ipAddr && inet_pton(AF_INET, ipAddr, &sin.sin_addr) != 0) {
             // fast path, or if we don't have CFHost
-            CFDataRef address = CFDataCreate(kCFAllocatorDefault, (uint8_t *)&sin, sin.sin_len);
+            CFDataRef address = CFDataCreate(kCFAllocatorDefault, (uint8_t *)&sin, sizeof(sin));
             CFArrayRef addressList = CFArrayCreate(kCFAllocatorDefault, (const void **)&address, 1, &kCFTypeArrayCallBacks);
             withResolvedHost(controller, addressList);
             CFRelease(addressList);

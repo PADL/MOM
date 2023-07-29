@@ -134,7 +134,7 @@ handleTcpConnect(CFSocketRef socket,
     *nativeSocketHandle = *((CFSocketNativeHandle *)data);
     
     _MOMResolveHostRestrictionAndPerform(controller, ^void (MOMControllerRef controller, CFArrayRef restrictAddressList) {
-        uint8_t name[SOCK_MAXADDRLEN];
+        uint8_t name[sizeof(struct sockaddr_storage)];
         char buffer[1024];
         socklen_t nameLen = sizeof(name);
         CFDataRef peerAddress = NULL;
@@ -224,7 +224,9 @@ createTcpListenerSocket(MOMControllerRef controller)
     }
     
     memset(&sin, 0, sizeof(sin));
+#ifdef __APPLE__
     sin.sin_len = sizeof(sin);
+#endif
     sin.sin_family = AF_INET;
     sin.sin_port = htons(kMOMControlPort);
     sin.sin_addr.s_addr = sinLocalAddress ? sinLocalAddress->sin_addr.s_addr : INADDR_ANY;

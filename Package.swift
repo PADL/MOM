@@ -3,6 +3,13 @@
 
 import PackageDescription
 
+let UnsafeCFlags: [String]
+#if os(Linux)
+UnsafeCFlags = ["-I", "/opt/swift/usr/lib/swift"]
+#else
+UnsafeCFlags = [String]()
+#endif
+
 let package = Package(
     name: "MOM",
     products: [
@@ -20,6 +27,10 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages this package depends on.
         .target(
             name: "Surrogate",
-            dependencies: []),
+            dependencies: [],
+            cSettings: [
+                .unsafeFlags(UnsafeCFlags)
+            ]
+        )
     ]
 )

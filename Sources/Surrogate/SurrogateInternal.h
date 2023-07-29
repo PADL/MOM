@@ -12,6 +12,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -20,8 +21,15 @@
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 
+#include <dispatch/queue.h>
+#ifndef __APPLE__
+#include <Block/Block.h>
+#endif
+
 #include <CoreFoundation/CoreFoundation.h>
+#ifdef __APPLE__
 #include <CFNetwork/CFNetwork.h>
+#endif
 
 #include <Surrogate/Surrogate.h>
 

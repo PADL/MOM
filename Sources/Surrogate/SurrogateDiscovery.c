@@ -147,7 +147,9 @@ sendDiscoveryReplyOnInterface(MOMControllerRef controller,
         goto out;
         
     struct sockaddr_in sinPeerAddress = {
+#ifdef __APPLE__
         .sin_len = sizeof(sinPeerAddress),
+#endif
         .sin_family = AF_INET,
         .sin_port = htons(kMOMDiscoveryReplyPort),
         .sin_addr = { .s_addr = saPeerAddress ? ((struct sockaddr_in *)saPeerAddress)->sin_addr.s_addr : INADDR_BROADCAST },
@@ -401,7 +403,9 @@ sendDiscoveryReply(MOMControllerRef controller, CFDataRef pktInfoData)
     const struct in_pktinfo *pktInfo = (const struct in_pktinfo *)CFDataGetBytePtr(pktInfoData);
     const struct sockaddr_in *sinLocalAddress =_MOMGetLocalInterfaceAddress(controller);
     const struct sockaddr_in sinPeerAddress = {
+#ifdef __APPLE__
         .sin_len = sizeof(sinPeerAddress),
+#endif
         .sin_family = AF_INET,
         .sin_port = 0,
         .sin_addr = pktInfo->ipi_addr,
@@ -413,7 +417,7 @@ sendDiscoveryReply(MOMControllerRef controller, CFDataRef pktInfoData)
         return;
     }
 
-    CFDataRef peerAddress = CFDataCreate(kCFAllocatorDefault, (uint8_t *)&sinPeerAddress, sinPeerAddress.sin_len);
+    CFDataRef peerAddress = CFDataCreate(kCFAllocatorDefault, (uint8_t *)&sinPeerAddress, sizeof(sinPeerAddress));
 
     _MOMResolveHostRestrictionAndPerform(controller, ^(MOMControllerRef controller, CFArrayRef restrictAddressList) {
         /*
@@ -488,7 +492,7 @@ handleUdpPacket(CFSocketRef s,
         goto out;
     
     if (isEchoRequest(request)) {
-        CFDataRef peerAddress = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (uint8_t *)&sin, sin.sin_len, kCFAllocatorNull);
+        CFDataRef peerAddress = CFDataCreateWithBytesNoCopy(kCFAllocatorDefault, (uint8_t *)&sin, sizeof(sin), kCFAllocatorNull);
         CFSocketSendDataWithPacketInfo(s, peerAddress, request, 0, pktInfoData);
         CFRelease(peerAddress);
     } else if (isDiscoveryRequest(request)) {
@@ -523,7 +527,9 @@ _MOMCreateDiscoverySocket(MOMControllerRef controller)
         return NULL;
     
     memset(&sin, 0, sizeof(sin));
+#ifdef __APPLE__
     sin.sin_len = sizeof(sin);
+#endif
     sin.sin_family = AF_INET;
     sin.sin_port = htons(kMOMDiscoveryRequestPort);
     sin.sin_addr.s_addr = INADDR_ANY;

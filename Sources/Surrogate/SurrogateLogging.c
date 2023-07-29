@@ -14,24 +14,13 @@ extern void NSLogv(CFStringRef format, va_list args);
 
 #else
 
-enum {  // Legal level values for CFLog()
-    kCFLogLevelEmergency = 0,
-    kCFLogLevelAlert = 1,
-    kCFLogLevelCritical = 2,
-    kCFLogLevelError = 3,
-    kCFLogLevelWarning = 4,
-    kCFLogLevelNotice = 5,
-    kCFLogLevelInfo = 6,
-    kCFLogLevelDebug = 7,
-};
-
 typedef void (*CFLogFunc)(int32_t lev, const char *message, size_t length, char withBanner);
 
-CF_EXPORT void _CFLogvEx2(CFLogFunc logit,
-                          CFStringRef (*copyDescFunc)(void *, const void *),
-                          CFStringRef (*contextDescFunc)(void *, const void *, const void *, bool, bool *),
-                          CFDictionaryRef formatOptions, int32_t lev, CFStringRef format, va_list args);
-
+CF_EXPORT void
+_CFLogvEx2(CFLogFunc logit,
+           CFStringRef (*copyDescFunc)(void *, const void *),
+           CFStringRef (*contextDescFunc)(void *, const void *, const void *, bool, bool *),
+           CFDictionaryRef formatOptions, int32_t lev, CFStringRef format, va_list args);
 #endif
 
 void _MOMDebugLog(CFStringRef format, ...)
