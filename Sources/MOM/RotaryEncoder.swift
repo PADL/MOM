@@ -35,7 +35,7 @@ public struct RotaryEncoder {
         precondition(dBValue <= MOM.dBDadDisplayCeiling)
 
         let absoluteDBValue: Decibel = dBValue - MOM.dBDadDisplayFloor
-        return Int(absoluteDBValue * Self.Steps)
+        return Int(absoluteDBValue * MOM.dBIncrements)
     }
 
     public mutating func rotate(by steps: Int) {
