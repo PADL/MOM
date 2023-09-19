@@ -3,9 +3,24 @@
 
 import PackageDescription
 
+func tryGuessSwiftLibRoot() -> String {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/bin/sh")
+    task.arguments = ["-c", "which swift"]
+    task.standardOutput = Pipe()
+    do {
+        try task.run()
+        let outputData = (task.standardOutput as! Pipe).fileHandleForReading.readDataToEndOfFile()
+        let path = URL(fileURLWithPath: String(decoding: outputData, as: UTF8.self))
+        return path.deletingLastPathComponent().path + "/../lib/swift"
+    } catch {
+        return "/usr/lib/swift"
+    }
+}
+
 let UnsafeCFlags: [String]
 #if os(Linux)
-UnsafeCFlags = ["-I", "/opt/swift/usr/lib/swift"]
+UnsafeCFlags = ["-I", tryGuessSwiftLibRoot()]
 #else
 UnsafeCFlags = [String]()
 #endif
