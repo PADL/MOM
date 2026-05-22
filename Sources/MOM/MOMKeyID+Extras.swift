@@ -14,8 +14,11 @@
 // limitations under the License.
 //
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
-import Surrogate
+#endif
 
 public extension MOMKeyID {
   static func allLabelableCases() -> AnySequence<MOMKeyID> {
@@ -43,7 +46,7 @@ public extension MOMKeyID {
         return nil
       }
 
-      let item = MOMKeyID(rawValue: currentKeyID)
+      let item = MOMKeyID(rawValue: currentKeyID)!
 
       currentKeyID += 1
 
@@ -53,18 +56,18 @@ public extension MOMKeyID {
 
   var labelSuffix: String {
     switch self {
-    case .output1: return "Output1"
-    case .output2: return "Output2"
-    case .output3: return "Output3"
-    case .sourceA: return "SourceA"
-    case .sourceB: return "SourceB"
-    case .sourceC: return "SourceC"
-    case .ref: return "Ref"
-    case .dim: return "Dim"
-    case .talk: return "Talkback"
-    case .cut: return "Cut"
-    case .layer: return "Layer"
-    case .external: return "External"
+    case .output1: "Output1"
+    case .output2: "Output2"
+    case .output3: "Output3"
+    case .sourceA: "SourceA"
+    case .sourceB: "SourceB"
+    case .sourceC: "SourceC"
+    case .ref: "Ref"
+    case .dim: "Dim"
+    case .talk: "Talkback"
+    case .cut: "Cut"
+    case .layer: "Layer"
+    case .external: "External"
     }
   }
 

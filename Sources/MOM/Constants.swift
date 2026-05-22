@@ -14,28 +14,32 @@
 // limitations under the License.
 //
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 public typealias Decibel = Float
 
 public enum MOM {
-  // maximum gain range in DADman (112dB)
+  /// maximum gain range in DADman (112dB)
   public static let dBTotalGain: Decibel = 112.0
 
-  // increments of gain display supported by ring LED display/rotary encoder (2)
+  /// increments of gain display supported by ring LED display/rotary encoder (2)
   public static let dBIncrements: Float = 2.0
-  // gain representable by ring led display (52dB)
+  /// gain representable by ring led display (52dB)
   public static let dBRepresentableGain: Decibel = .init(RingLedDisplay.LedSteps) / dBIncrements
-  // gain unrepresentable by ring led display (60dB)
+  /// gain unrepresentable by ring led display (60dB)
   public static let dBUnrepresentableGain: Decibel = dBTotalGain - dBRepresentableGain
 
-  // minimum gain in DADman (-100dB)
+  /// minimum gain in DADman (-100dB)
   public static let dBDadDisplayFloor: Decibel = -100.0
-  // maximum gain in DADman (+12dB)
+  /// maximum gain in DADman (+12dB)
   public static let dBDadDisplayCeiling = dBDadDisplayFloor + dBTotalGain
 
-  // minimum gain in MOM (-40dB)
+  /// minimum gain in MOM (-40dB)
   public static let dBMomDisplayFloor: Decibel = dBDadDisplayFloor + dBUnrepresentableGain
-  // maximum gain in MOM (+12dB)
+  /// maximum gain in MOM (+12dB)
   public static let dBMomDisplayCeiling: Decibel = dBMomDisplayFloor + dBRepresentableGain
 }

@@ -14,14 +14,18 @@
 // limitations under the License.
 //
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 public struct RingLedDisplay {
-  public enum LedColor: Int {
+  public enum LedColor: Int, Sendable {
     case off = 0, green, red, orange
   }
 
-  // lookup table enumerates the states a LED pair can be
+  /// lookup table enumerates the states a LED pair can be
   private static let LedLut = [
     (LedColor.red, LedColor.off),
     (LedColor.orange, LedColor.green),
@@ -35,8 +39,8 @@ public struct RingLedDisplay {
 
   public init() {}
 
-  // this returns an optional as there are some invalid states whilst the
-  // virtual ring led display is being updated which should be ignored
+  /// this returns an optional as there are some invalid states whilst the
+  /// virtual ring led display is being updated which should be ignored
   public var value: Int? {
     var interpolatedValue: Int?
 

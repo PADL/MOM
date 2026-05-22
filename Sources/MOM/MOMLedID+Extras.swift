@@ -14,8 +14,11 @@
 // limitations under the License.
 //
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
-import Surrogate
+#endif
 
 public extension MOMLedID {
   static func allCases() -> AnySequence<MOMLedID> {
@@ -37,7 +40,7 @@ public extension MOMLedID {
         return nil
       }
 
-      let item = MOMLedID(rawValue: currentKeyID)
+      let item = MOMLedID(rawValue: currentKeyID)!
 
       currentKeyID += 1
 

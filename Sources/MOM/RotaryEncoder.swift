@@ -14,7 +14,11 @@
 // limitations under the License.
 //
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 public struct RotaryEncoder {
   private static let Steps = MOM.dBTotalGain * MOM.dBIncrements
