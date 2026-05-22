@@ -41,6 +41,10 @@ internal final class MOMListener: @unchecked Sendable {
       return nil
     }
 
+    // Non-blocking so accept() in the DispatchSource handler doesn't stall
+    // if the connection is reset between event fire and accept call.
+    MOMNet.makeNonBlocking(fd)
+
     let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: controller.queue)
     let listener = MOMListener(fd: fd, source: src, port: port)
 
@@ -126,13 +130,3 @@ private let sockType_stream: Int32 = SOCK_STREAM
 #else
 private let sockType_stream: Int32 = Int32(SOCK_STREAM.rawValue)
 #endif
-
-internal extension MOMNet {
-  /// O_NONBLOCK | existing fcntl flags.
-  static func makeNonBlocking(_ fd: Int32) {
-    let flags = fcntl(fd, F_GETFL, 0)
-    if flags >= 0 {
-      _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-    }
-  }
-}

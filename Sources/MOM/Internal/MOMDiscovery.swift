@@ -39,6 +39,9 @@ internal final class MOMDiscovery: @unchecked Sendable {
       return nil
     }
 
+    // Non-blocking so recvmsg() / sendmsg() can't stall the dispatch queue.
+    MOMNet.makeNonBlocking(fd)
+
     let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: controller.queue)
     let d = MOMDiscovery(fd: fd, source: src)
 

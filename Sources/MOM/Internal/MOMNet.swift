@@ -64,6 +64,14 @@ internal enum MOMNet {
     #endif
   }
 
+  /// `O_NONBLOCK | existing flags` via fcntl.
+  static func makeNonBlocking(_ fd: Int32) {
+    let flags = fcntl(fd, F_GETFL, 0)
+    if flags >= 0 {
+      _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+    }
+  }
+
   /// Bind a UDP/TCP socket to (anyAddr, port). Returns true on success.
   static func bind(_ fd: Int32, port: UInt16, address: in_addr_t = INADDR_ANY) -> Bool {
     var sin = sockaddr_in()
