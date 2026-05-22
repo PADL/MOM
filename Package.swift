@@ -7,10 +7,6 @@ let package = Package(
   name: "MOM",
   products: [
     .library(
-      name: "Surrogate",
-      targets: ["Surrogate"]
-    ),
-    .library(
       name: "MOM",
       targets: ["MOM"]
     ),
@@ -20,16 +16,9 @@ let package = Package(
       name: "MOM",
       dependencies: []
     ),
-    // Legacy compatibility shim: re-exports MOM and provides the C-style
-    // free-function surface (`MOMControllerCreate(...)` etc.) for callers
-    // that still write `import Surrogate`.
-    .target(
-      name: "Surrogate",
-      dependencies: ["MOM"]
-    ),
     .testTarget(
       name: "MOMTests",
-      dependencies: ["MOM", "Surrogate"]
+      dependencies: ["MOM"]
     ),
   ]
 )
