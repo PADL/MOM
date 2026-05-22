@@ -90,7 +90,7 @@ internal final class MOMDiscovery: @unchecked Sendable {
       }
 
       var pi = in_pktinfo()
-      pi.ipi_ifindex = Int32(if_nametoindex(ifp.pointee.ifa_name))
+      pi.ipi_ifindex = CUnsignedInt(if_nametoindex(ifp.pointee.ifa_name))
       pi.ipi_spec_dst = ifAddr
 
       var dst = sockaddr_in()
