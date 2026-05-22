@@ -90,7 +90,13 @@ internal final class MOMDiscovery: @unchecked Sendable {
       }
 
       var pi = in_pktinfo()
-      pi.ipi_ifindex = CUnsignedInt(if_nametoindex(ifp.pointee.ifa_name))
+      // ipi_ifindex is UInt32 on Darwin, Int32 on Linux/glibc.
+      let ifindex = if_nametoindex(ifp.pointee.ifa_name)
+      #if canImport(Darwin)
+      pi.ipi_ifindex = CUnsignedInt(ifindex)
+      #else
+      pi.ipi_ifindex = Int32(ifindex)
+      #endif
       pi.ipi_spec_dst = ifAddr
 
       var dst = sockaddr_in()
