@@ -15,7 +15,6 @@
 //
 
 import Foundation
-import Surrogate
 
 public extension MOMKeyID {
   static func allLabelableCases() -> AnySequence<MOMKeyID> {
@@ -43,7 +42,7 @@ public extension MOMKeyID {
         return nil
       }
 
-      let item = MOMKeyID(rawValue: currentKeyID)
+      let item = MOMKeyID(rawValue: currentKeyID)!
 
       currentKeyID += 1
 
