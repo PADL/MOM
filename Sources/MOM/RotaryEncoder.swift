@@ -31,7 +31,8 @@ public struct RotaryEncoder {
     precondition(value >= 0.0)
     precondition(value <= 1.0)
 
-    return lroundf(value.squareRoot() * Float(RotaryEncoder.Steps))
+    // .rounded() defaults to .toNearestOrAwayFromZero, matching lroundf.
+    return Int((value.squareRoot() * Float(RotaryEncoder.Steps)).rounded())
   }
 
   private static func unscaleDB(_ dBValue: Decibel) -> Int {

@@ -12,6 +12,8 @@
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 import Dispatch
 #if canImport(FoundationEssentials)
@@ -31,22 +33,22 @@ public final class MOMPeerContext: @unchecked Sendable {
 
   weak var controller: MOMController?
   var peerAddress: sockaddr_in
-  let fd: Int32
+  let fd: Socket.SocketDescriptor
 
-  var readSource: DispatchSourceRead?
-  var writeSource: DispatchSourceWrite?
+  var readSource: IOReadinessSource?
+  var writeSource: IOReadinessSource?
   var writeSourceActive = false
 
   var readBuffer = Data()
   var writeBuffer = Data()
   var bytesWritten = 0
-  var lastActivity: time_t = 0
+  var lastActivity: Date?
   var closed = false
   var portStatus: MOMPortStatus = .closed // mutated only on `queue`
 
   init(
     controller: MOMController,
-    fd: Int32,
+    fd: Socket.SocketDescriptor,
     peerAddress: sockaddr_in,
     peerName: String?
   ) {
@@ -77,7 +79,7 @@ public final class MOMPeerContext: @unchecked Sendable {
     sin.sin_family = sa_family_t(AF_INET)
     return MOMPeerContext(
       controller: controller,
-      fd: -1,
+      fd: Socket.invalidDescriptor,
       peerAddress: sin,
       peerName: peerName
     )

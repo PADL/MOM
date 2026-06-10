@@ -10,7 +10,11 @@ import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import XCTest
 @testable import MOM
 

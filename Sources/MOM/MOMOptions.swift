@@ -8,7 +8,11 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 //
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// Device configuration, backed by a string-keyed dictionary.
 ///

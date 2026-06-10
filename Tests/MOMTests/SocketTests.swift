@@ -5,28 +5,62 @@
 // you may not use this file except in compliance with the License.
 //
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
 import XCTest
 @testable import MOM
+
+/// True if `fd` refers to an open socket. POSIX answers via fcntl; Windows
+/// SOCKETs are not CRT fds, so probe with a benign getsockopt instead.
+private func isLiveSocket(_ fd: Socket.SocketDescriptor) -> Bool {
+  #if canImport(WinSDK)
+  var type: Int32 = 0
+  var len = socklen_t(MemoryLayout<Int32>.size)
+  return withUnsafeMutablePointer(to: &type) { p in
+    p.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<Int32>.size) { cp in
+      getsockopt(fd, SOL_SOCKET, SO_TYPE, cp, &len) == 0
+    }
+  }
+  #else
+  return fcntl(fd, F_GETFD) >= 0
+  #endif
+}
 
 final class SocketTests: XCTestCase {
   // MARK: - Ownership
 
   func testDroppingSocketClosesFD() {
-    var fd: Int32 = -1
+    var fd = Socket.invalidDescriptor
     if let sock = Socket.udp() {
       fd = sock.fd
-      XCTAssertGreaterThanOrEqual(fcntl(fd, F_GETFD), 0)
+      XCTAssertTrue(isLiveSocket(fd))
     } // sock deinit runs here
-    XCTAssertEqual(fcntl(fd, F_GETFD), -1)
-    XCTAssertEqual(momErrno, EBADF)
+    XCTAssertFalse(isLiveSocket(fd))
+    // The module's `errno` shadow can't be named here (the MOM enum shadows
+    // the module name), so use the platform spellings directly.
+    #if canImport(WinSDK)
+    XCTAssertEqual(WSAGetLastError(), WSAENOTSOCK)
+    #elseif canImport(Darwin)
+    XCTAssertEqual(Darwin.errno, EBADF)
+    #else
+    XCTAssertEqual(Glibc.errno, EBADF)
+    #endif
   }
 
   func testDetachTransfersOwnershipWithoutClosing() {
     guard let sock = Socket.udp() else { return XCTFail("socket()") }
     let fd = sock.detach()
-    XCTAssertGreaterThanOrEqual(fcntl(fd, F_GETFD), 0, "fd must survive detach()")
+    XCTAssertTrue(isLiveSocket(fd), "fd must survive detach()")
     Socket.close(fd)
-    XCTAssertEqual(fcntl(fd, F_GETFD), -1)
+    XCTAssertFalse(isLiveSocket(fd))
   }
 
   // MARK: - Factories
@@ -139,7 +173,7 @@ final class SocketTests: XCTestCase {
     for _ in 0..<100 {
       result = Socket.receive(on: rx.fd, capacity: 64)
       if result != nil { break }
-      usleep(10_000)
+      Thread.sleep(forTimeInterval: 0.01)
     }
 
     let received = try XCTUnwrap(result)

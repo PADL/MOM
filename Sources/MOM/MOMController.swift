@@ -304,10 +304,11 @@ public final class MOMController: @unchecked Sendable {
   /// Drop any peer whose last activity is older than `aliveTime` seconds.
   /// Caller must be on `queue`.
   func _expireStalePeers() {
-    let now = time(nil)
-    let aliveSeconds = time_t(_aliveTime)
+    let now = Date()
+    let aliveSeconds = TimeInterval(_aliveTime)
     let stale = _peers.filter { p in
-      p.lastActivity != 0 && p.lastActivity + aliveSeconds < now
+      guard let last = p.lastActivity else { return false }
+      return now.timeIntervalSince(last) > aliveSeconds
     }
     for p in stale {
       MOMPeer.close(p, error: nil)

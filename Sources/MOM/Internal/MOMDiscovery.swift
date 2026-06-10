@@ -12,6 +12,8 @@
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 import Dispatch
 #if canImport(FoundationEssentials)
@@ -33,8 +35,8 @@ final class MOMDiscovery: @unchecked Sendable {
     [MOMMessage.tagByte(for: .typeHostGetRequest)] + Array("edev".utf8)
       + [MOMMessage.recordTerminator] // "?edev\r"
 
-  let fd: Int32
-  let source: DispatchSourceRead
+  let fd: Socket.SocketDescriptor
+  let source: IOReadinessSource
 
   static func bind(controller: MOMController) -> MOMDiscovery? {
     guard let sock = Socket.udp() else { return nil }
@@ -49,7 +51,7 @@ final class MOMDiscovery: @unchecked Sendable {
     sock.makeNonBlocking()
 
     let fd = sock.detach()
-    let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: controller.queue)
+    let src = IOReadinessSource.read(fd: fd, queue: controller.queue)
     let d = MOMDiscovery(fd: fd, source: src)
 
     src.setEventHandler { [weak d, weak controller] in
@@ -64,7 +66,7 @@ final class MOMDiscovery: @unchecked Sendable {
     return d
   }
 
-  private init(fd: Int32, source: DispatchSourceRead) {
+  private init(fd: Socket.SocketDescriptor, source: IOReadinessSource) {
     self.fd = fd
     self.source = source
   }
@@ -95,31 +97,23 @@ final class MOMDiscovery: @unchecked Sendable {
     ))
     let restrictLocal = controller._localInterfaceAddress?.sin_addr.s_addr
 
-    MOMEnumerateInterfaces { ifp -> MOMStatus in
-      guard let sa = ifp.pointee.ifa_addr,
-            sa.pointee.sa_family == sa_family_t(AF_INET)
-      else { return .continue }
-
-      let ifAddr = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-        $0.pointee.sin_addr
-      }
-      if let restrict = restrictLocal, ifAddr.s_addr != restrict {
+    MOMEnumerateInterfaces { interface -> MOMStatus in
+      if let restrict = restrictLocal, interface.address.s_addr != restrict {
         return .continue
       }
 
       let pi = Socket.pktInfo(
-        interfaceIndex: if_nametoindex(ifp.pointee.ifa_name),
-        specDst: ifAddr
+        interfaceIndex: interface.index,
+        specDst: interface.address
       )
       let dst = Socket.ipv4Address(
         port: MOMPort.discoveryReply,
         address: unicastTo ?? INADDR_BROADCAST.bigEndian
       )
       let kind = unicastTo == nil ? "broadcast" : "unicast"
-      let ifName = String(cString: ifp.pointee.ifa_name)
       logger
         .debug(
-          "sending \(kind) discovery notification message from \(Socket.format(ifAddr)) to \(Socket.format(dst.sin_addr)):\(MOMPort.discoveryReply) (via \(ifName))"
+          "sending \(kind) discovery notification message from \(interface.addressString) to \(Socket.format(dst.sin_addr)):\(MOMPort.discoveryReply) (via \(interface.name))"
         )
       Socket.send(body, on: self.fd, to: dst, pktInfo: pi)
       return .continue // keep going across all interfaces

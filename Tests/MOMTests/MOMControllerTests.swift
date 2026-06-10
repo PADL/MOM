@@ -10,7 +10,11 @@ import Darwin
 #elseif canImport(Glibc)
 import Glibc
 #endif
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import XCTest
 @testable import MOM
 
@@ -54,8 +58,8 @@ final class MOMControllerTests: XCTestCase {
 
     q.sync {
       c._setAliveTime(5)
-      live.lastActivity = time(nil)        // fresh
-      dead.lastActivity = time(nil) - 60   // ancient
+      live.lastActivity = Date()                          // fresh
+      dead.lastActivity = Date(timeIntervalSinceNow: -60) // ancient
       c._addPeer(live)
       c._addPeer(dead)
       c._expireStalePeers()

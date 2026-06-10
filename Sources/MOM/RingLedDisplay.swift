@@ -110,7 +110,8 @@ public struct RingLedDisplay {
       unscaledValue = 0
     }
 
-    return lroundf(unscaledValue)
+    // .rounded() defaults to .toNearestOrAwayFromZero, matching lroundf.
+    return Int(unscaledValue.rounded())
   }
 
   public static func colorForScaledValue(led ledNumber: Int, value: Float) -> RingLedDisplay
@@ -141,7 +142,7 @@ public struct RingLedDisplay {
       dBValue = 0
     }
 
-    return lroundf(dBValue * MOM.dBIncrements)
+    return Int((dBValue * MOM.dBIncrements).rounded())
   }
 
   public static func colorForDBValue(led ledNumber: Int, value: Decibel) -> RingLedDisplay

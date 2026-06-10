@@ -12,6 +12,8 @@
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 import Dispatch
 #if canImport(FoundationEssentials)
@@ -33,7 +35,7 @@ enum MOMPeer {
     guard let controller = peer.controller else { return }
     let q = controller.queue
 
-    let readSrc = DispatchSource.makeReadSource(fileDescriptor: peer.fd, queue: q)
+    let readSrc = IOReadinessSource.read(fd: peer.fd, queue: q)
     readSrc.setEventHandler { [weak peer] in
       guard let p = peer else { return }
       handleReadable(p)
@@ -43,7 +45,7 @@ enum MOMPeer {
     }
     peer.readSource = readSrc
 
-    let writeSrc = DispatchSource.makeWriteSource(fileDescriptor: peer.fd, queue: q)
+    let writeSrc = IOReadinessSource.write(fd: peer.fd, queue: q)
     writeSrc.setEventHandler { [weak peer] in
       guard let p = peer else { return }
       flushWrite(p)
@@ -53,7 +55,7 @@ enum MOMPeer {
     readSrc.resume()
     // writeSource is resumed lazily when there's data to send
 
-    peer.lastActivity = time(nil)
+    peer.lastActivity = Date()
     controller._setPeerPortStatus(peer, .open)
   }
 
@@ -72,7 +74,7 @@ enum MOMPeer {
   private static func handleReadable(_ peer: MOMPeerContext) {
     var buf = [UInt8](repeating: 0, count: readChunk)
     let n = buf.withUnsafeMutableBufferPointer { p in
-      read(peer.fd, p.baseAddress, p.count)
+      Socket.recvRaw(numericCast(peer.fd), p.baseAddress, p.count)
     }
 
     if n == 0 {
@@ -80,13 +82,13 @@ enum MOMPeer {
       return
     }
     if n < 0 {
-      let err = momErrno
-      if err == EAGAIN || err == EWOULDBLOCK || err == EINTR { return }
+      let err = errno
+      if errWouldBlock(err) || errInterrupted(err) { return }
       close(peer, error: err)
       return
     }
 
-    peer.lastActivity = time(nil)
+    peer.lastActivity = Date()
     peer.readBuffer.append(buf, count: Int(n))
     drainMessages(peer)
   }
@@ -129,12 +131,12 @@ enum MOMPeer {
       let remaining = peer.writeBuffer.count - peer.bytesWritten
       let n = peer.writeBuffer.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Int in
         let p = raw.baseAddress!.advanced(by: peer.bytesWritten)
-        return write(peer.fd, p, remaining)
+        return Socket.sendRaw(numericCast(peer.fd), p, remaining)
       }
       if n < 0 {
-        let err = momErrno
-        if err == EAGAIN || err == EWOULDBLOCK { return }
-        if err == EINTR { continue }
+        let err = errno
+        if errWouldBlock(err) { return }
+        if errInterrupted(err) { continue }
         close(peer, error: err)
         return
       }
@@ -162,7 +164,7 @@ enum MOMPeer {
   static func close(_ peer: MOMPeerContext, error: Int32?) {
     guard !peer.closed else { return }
     peer.closed = true
-    let reason = error.map { " (errno \($0): \(momStrError($0)))" } ?? ""
+    let reason = error.map { " (errno \($0): \(errnoToString($0)))" } ?? ""
     logger.debug("closing peer \(peer.peerName ?? "?")\(reason)")
 
     if let c = peer.controller {

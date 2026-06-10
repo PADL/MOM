@@ -12,6 +12,8 @@
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 #if canImport(FoundationEssentials)
 import FoundationEssentials
@@ -57,7 +59,7 @@ enum Cmsg {
       let hdr = control.baseAddress!.load(fromByteOffset: offset, as: cmsghdr.self)
       let len = Int(hdr.cmsg_len)
       if len < hdrSize || offset + len > control.count { break }
-      if hdr.cmsg_level == Int32(IPPROTO_IP), hdr.cmsg_type == IP_PKTINFO {
+      if hdr.cmsg_level == IPPROTO_IP, hdr.cmsg_type == IP_PKTINFO {
         let dataOffset = offset + cmsgHeaderSize
         if dataOffset + MemoryLayout<in_pktinfo>.size <= control.count {
           return control.baseAddress!.load(fromByteOffset: dataOffset, as: in_pktinfo.self)
@@ -82,7 +84,7 @@ enum Cmsg {
     // cmsg_len is `Int` on glibc and `socklen_t` on Darwin — assign via a
     // numeric init through the property's own type.
     hdr.cmsg_len = .init(length(MemoryLayout<in_pktinfo>.size))
-    hdr.cmsg_level = Int32(IPPROTO_IP)
+    hdr.cmsg_level = IPPROTO_IP
     hdr.cmsg_type = IP_PKTINFO
 
     control.baseAddress!.storeBytes(of: hdr, as: cmsghdr.self)

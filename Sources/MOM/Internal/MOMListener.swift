@@ -12,6 +12,8 @@
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 import Dispatch
 #if canImport(FoundationEssentials)
@@ -23,8 +25,8 @@ import Foundation
 /// TCP listen socket on `MOMPort.control`. Accepts incoming connections,
 /// builds a `MOMPeerContext` per accepted peer, and starts its I/O sources.
 final class MOMListener: @unchecked Sendable {
-  let fd: Int32
-  let source: DispatchSourceRead
+  let fd: Socket.SocketDescriptor
+  let source: IOReadinessSource
   let port: UInt16
 
   /// Returns nil on socket/bind/listen failure.
@@ -44,7 +46,7 @@ final class MOMListener: @unchecked Sendable {
     sock.makeNonBlocking()
 
     let fd = sock.detach()
-    let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: controller.queue)
+    let src = IOReadinessSource.read(fd: fd, queue: controller.queue)
     let listener = MOMListener(fd: fd, source: src, port: port)
 
     src.setEventHandler { [weak listener, weak controller] in
@@ -59,7 +61,7 @@ final class MOMListener: @unchecked Sendable {
     return listener
   }
 
-  private init(fd: Int32, source: DispatchSourceRead, port: UInt16) {
+  private init(fd: Socket.SocketDescriptor, source: IOReadinessSource, port: UInt16) {
     self.fd = fd
     self.source = source
     self.port = port

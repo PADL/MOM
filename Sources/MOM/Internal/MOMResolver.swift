@@ -12,6 +12,8 @@
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 #if canImport(FoundationEssentials)
 import FoundationEssentials
@@ -29,6 +31,9 @@ enum MOMResolver {
   /// This call may block on DNS. Avoid invoking it on the controller's
   /// dispatch queue.
   static func resolveIPv4(_ host: String) -> [in_addr_t] {
+    #if canImport(WinSDK)
+    _ensureWinsock()
+    #endif
     var hints = addrinfo()
     hints.ai_family = AF_INET
     hints.ai_socktype = Socket.streamType
