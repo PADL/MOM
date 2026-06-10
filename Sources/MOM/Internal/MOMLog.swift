@@ -19,11 +19,16 @@ let logger: Logger = {
   return logger
 }()
 
-/// Render wire bytes for logging (they are ASCII; CR rendered as newline).
+/// Render wire bytes for logging (they are ASCII). Interior CRs are rendered
+/// as newlines so a multi-message buffer reads line-by-line, but the trailing
+/// record terminator is trimmed so it doesn't break the surrounding log line.
 func wireDescription(_ bytes: some Sequence<UInt8>) -> String {
   var out = ""
   for byte in bytes {
     out.append(byte == 0x0D ? "\n" : Character(UnicodeScalar(byte)))
+  }
+  while out.hasSuffix("\n") {
+    out.removeLast()
   }
   return out
 }

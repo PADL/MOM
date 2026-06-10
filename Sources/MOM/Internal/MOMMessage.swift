@@ -170,7 +170,13 @@ enum MOMMessage {
 
   static func decode(_ data: Data) -> DecodeOutcome {
     guard let raw = String(data: data, encoding: .utf8) else { return .invalid }
-    let trimmed = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
+    // Strip the record terminator. The protocol uses a bare CR, but tolerate
+    // a trailing LF (or CRLF) so a stray line feed never corrupts the last
+    // token.
+    var trimmed = Substring(raw)
+    while let last = trimmed.last, last == "\r" || last == "\n" {
+      trimmed = trimmed.dropLast()
+    }
 
     let tokens = trimmed.split(separator: ",", omittingEmptySubsequences: false)
     guard let first = tokens.first, let tagScalar = first.unicodeScalars.first
