@@ -86,14 +86,14 @@ final class MOMDiscovery: @unchecked Sendable {
   /// Broadcast an unsolicited discovery notification on every up/running
   /// IPv4 interface (or a single unicast if `unicastTo` is supplied).
   ///
-  /// If `options.localInterfaceAddress` is set, only the matching interface
+  /// If `controller.localInterfaceAddress` is set, only the matching interface
   /// is used. Caller must be on `controller.queue`.
   func announce(controller: MOMController, unicastTo: in_addr_t? = nil) {
     let body = Array(MOMDiscovery.discoveryReplyBytes(
       controller: controller,
       isSolicited: false
     ))
-    let restrictLocal = controller._options.localInterfaceAddress?.sin_addr.s_addr
+    let restrictLocal = controller._localInterfaceAddress?.sin_addr.s_addr
 
     MOMEnumerateInterfaces { ifp -> MOMStatus in
       guard let sa = ifp.pointee.ifa_addr,
@@ -178,7 +178,7 @@ final class MOMDiscovery: @unchecked Sendable {
   ) {
     // If a specific local interface is configured, only reply when it matches
     // the destination the request was addressed to (ipi_spec_dst).
-    if let local = controller._options.localInterfaceAddress,
+    if let local = controller._localInterfaceAddress,
        local.sin_addr.s_addr != requestPktInfo.ipi_spec_dst.s_addr
     {
       return

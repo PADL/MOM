@@ -68,6 +68,12 @@ public final class MOMController: @unchecked Sendable {
   /// Mutated only on `queue`.
   var _restrictAddresses: [in_addr_t] = []
 
+  /// Local interface the listening/discovery sockets bind to (nil →
+  /// INADDR_ANY). This is transient network state rather than persisted
+  /// configuration, so it lives here instead of in `MOMOptions`. Mutated
+  /// only on `queue`.
+  var _localInterfaceAddress: sockaddr_in?
+
   public init(
     options: MOMOptions = MOMOptions(),
     queue: DispatchQueue,
@@ -131,6 +137,13 @@ public final class MOMController: @unchecked Sendable {
     withQueue { _options }
   }
 
+  /// The local interface the sockets bind to, or nil for INADDR_ANY. Transient
+  /// network state (not part of `MOMOptions`); set before `beginDiscoverability`.
+  public var localInterfaceAddress: sockaddr_in? {
+    get { withQueue { _localInterfaceAddress } }
+    set { withQueue { _localInterfaceAddress = newValue } }
+  }
+
   /// Atomically mutate the options. Safe to call from handler callbacks.
   public func updateOptions(_ mutate: (inout MOMOptions) -> ()) {
     withQueue { mutate(&_options) }
@@ -173,7 +186,7 @@ public final class MOMController: @unchecked Sendable {
       guard _tcpListener == nil, _udpDiscovery == nil else {
         return .invalidParameter
       }
-      let bindAddr = _options.localInterfaceAddress?.sin_addr.s_addr ?? INADDR_ANY
+      let bindAddr = _localInterfaceAddress?.sin_addr.s_addr ?? INADDR_ANY
       guard let tcp = MOMListener.bind(
         on: MOMPort.control,
         address: bindAddr,
@@ -214,7 +227,7 @@ public final class MOMController: @unchecked Sendable {
   /// With `options.restrictToSpecifiedHost` set, the announcement is
   /// unicast to every resolved IPv4 address for that host. Otherwise it is
   /// broadcast on every up-and-running IPv4 interface (optionally filtered
-  /// by `options.localInterfaceAddress`).
+  /// by `localInterfaceAddress`).
   public func announceDiscoverability() -> MOMStatus {
     withQueue { _announceDiscoverability() }
   }
