@@ -69,6 +69,12 @@ public struct MOMInterface {
   }
 }
 
+extension sockaddr_in {
+  /// Dotted-quad presentation of `sin_addr`, e.g. for logging a
+  /// `MOMController.localInterfaceAddress`.
+  public var addressString: String { Socket.format(sin_addr) }
+}
+
 extension MOMInterface: Hashable, CustomStringConvertible {
   public static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.name == rhs.name && lhs.index == rhs.index && lhs.uuid == rhs.uuid &&
