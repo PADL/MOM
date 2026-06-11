@@ -20,6 +20,9 @@ import FoundationEssentials
 #else
 import Foundation
 #endif
+#if canImport(SystemConfiguration)
+import SystemConfiguration
+#endif
 
 /// An up-and-running, non-loopback IPv4 network interface, as yielded by
 /// `MOMEnumerateInterfaces`.
@@ -33,8 +36,10 @@ public struct MOMInterface {
   public let index: UInt32
 
   /// A persistent identifier for the interface, where the platform has one:
-  /// on Windows this is the adapter GUID (stable across reboots and address
-  /// changes). POSIX has no equivalent, so it is nil there.
+  /// on Windows this is the adapter GUID, on Darwin the UUID of the network
+  /// service configured on the interface (both stable across reboots and
+  /// address changes). Other POSIX platforms have no equivalent, so it is
+  /// nil there.
   ///
   /// Spelled module-qualified because WinSDK exports the C `UUID` typedef
   /// (an alias of `GUID`), which would otherwise be ambiguous here.
@@ -49,6 +54,35 @@ public struct MOMInterface {
 
   /// Dotted-quad presentation of `address`.
   public var addressString: String { Socket.format(address) }
+
+  /// `address` as a complete `sockaddr_in` (port 0), ready for APIs that
+  /// take a socket address, e.g. `MOMController.localInterfaceAddress`.
+  public var socketAddress: sockaddr_in {
+    Socket.ipv4Address(port: 0, address: address.s_addr)
+  }
+
+  /// The raw bytes of `socketAddress`, for use as a stable dictionary key
+  /// or property-list value.
+  public var addressData: Data {
+    withUnsafeBytes(of: socketAddress) { Data($0) }
+  }
+}
+
+extension MOMInterface: Hashable, CustomStringConvertible {
+  public static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.name == rhs.name && lhs.index == rhs.index && lhs.uuid == rhs.uuid &&
+      lhs.address.s_addr == rhs.address.s_addr
+  }
+
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(name)
+    hasher.combine(index)
+    hasher.combine(uuid)
+    hasher.combine(address.s_addr)
+  }
+
+  /// E.g. `en0[10.0.1.2]`.
+  public var description: String { "\(name)[\(addressString)]" }
 }
 
 /// Iterate up-and-running IPv4 network interfaces (excluding loopback).
@@ -76,7 +110,7 @@ public func MOMEnumerateInterfaces(
 extension MOMInterface {
   /// All up-and-running non-loopback IPv4 interfaces, one entry per unicast
   /// address, via `GetAdaptersAddresses`.
-  static var all: [MOMInterface] {
+  public static var all: [MOMInterface] {
     _ensureWinsock()
     let family = ULONG(AF_INET)
 
@@ -138,10 +172,14 @@ extension MOMInterface {
 extension MOMInterface {
   /// All up-and-running non-loopback IPv4 interfaces, one entry per unicast
   /// address, via `getifaddrs`.
-  static var all: [MOMInterface] {
+  public static var all: [MOMInterface] {
     var head: UnsafeMutablePointer<ifaddrs>?
     guard getifaddrs(&head) == 0 else { return [] }
     defer { freeifaddrs(head) }
+
+    #if canImport(SystemConfiguration)
+    let uuids = uuidsByInterfaceName
+    #endif
 
     var interfaces: [MOMInterface] = []
     var ifp = head
@@ -156,12 +194,17 @@ extension MOMInterface {
       if (flags & (Int(IFF_UP) | Int(IFF_RUNNING))) == 0 { continue }
       if (flags & Int(IFF_LOOPBACK)) != 0 { continue }
 
+      let name = String(cString: cur.pointee.ifa_name)
+      #if canImport(SystemConfiguration)
+      let uuid = uuids[name]
+      #else
+      let uuid: UUID? = nil
+      #endif
+
       interfaces.append(MOMInterface(
-        name: String(cString: cur.pointee.ifa_name),
+        name: name,
         index: if_nametoindex(cur.pointee.ifa_name),
-        // TODO: on Darwin, recover the persistent interface UUID via
-        // SystemConfiguration (SCNetworkInterface).
-        uuid: nil,
+        uuid: uuid,
         address: addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
           $0.pointee.sin_addr
         }
@@ -169,5 +212,40 @@ extension MOMInterface {
     }
     return interfaces
   }
+
+  #if canImport(SystemConfiguration)
+  /// Map BSD interface names (en0, …) to a persistent identifier: the ID of
+  /// the network service running on the interface, recovered from the
+  /// dynamic store (`State:/Network/Service/<serviceID>/IPv4`). Service IDs
+  /// are UUIDs, stable across reboots and address changes. Where several
+  /// services share an interface, the lexically first wins.
+  private static var uuidsByInterfaceName: [String: UUID] {
+    guard let store = SCDynamicStoreCreate(nil, "MOMInterfaces" as CFString, nil, nil)
+    else { return [:] }
+
+    let pattern = SCDynamicStoreKeyCreateNetworkServiceEntity(
+      nil,
+      kSCDynamicStoreDomainState,
+      kSCCompAnyRegex,
+      kSCEntNetIPv4
+    )
+    guard let keys = SCDynamicStoreCopyKeyList(store, pattern) as? [String]
+    else { return [:] }
+
+    var uuids: [String: UUID] = [:]
+    for key in keys.sorted() {
+      // key is "State:/Network/Service/<serviceID>/IPv4"
+      guard let props = SCDynamicStoreCopyValue(store, key as CFString)
+        as? [String: Any],
+        let name = props[kSCPropInterfaceName as String] as? String,
+        uuids[name] == nil,
+        let serviceID = key.split(separator: "/").dropLast().last,
+        let uuid = UUID(uuidString: String(serviceID))
+      else { continue }
+      uuids[name] = uuid
+    }
+    return uuids
+  }
+  #endif
 }
 #endif
