@@ -57,7 +57,7 @@ final class MOMListener: @unchecked Sendable {
       Socket.close(fd)
     }
     src.resume()
-    logger.debug("listening on TCP port \(port)")
+    controller.logger.debug("listening on TCP port \(port)")
     return listener
   }
 
@@ -89,7 +89,7 @@ final class MOMListener: @unchecked Sendable {
     // cached `_restrictAddresses` is populated at init via
     // `MOMResolver.resolveIPv4`, which handles IPv4 literals and hostnames.
     guard controller._peerAddressAllowed(sin.sin_addr) else {
-      logger.debug("rejected connection from \(Socket.format(sin.sin_addr)) (host restriction)")
+      controller.logger.debug("rejected connection from \(Socket.format(sin.sin_addr)) (host restriction)")
       return // client deinit closes the rejected connection
     }
 
@@ -102,7 +102,7 @@ final class MOMListener: @unchecked Sendable {
       peerAddress: sin,
       peerName: Socket.format(sin.sin_addr)
     )
-    logger.debug("accepted connection from \(peer.peerName ?? "?")")
+    controller.logger.debug("accepted connection from \(peer.peerName ?? "?")")
     controller._addPeer(peer)
     MOMPeer.start(peer)
   }

@@ -62,7 +62,7 @@ final class MOMDiscovery: @unchecked Sendable {
       Socket.close(fd)
     }
     src.resume()
-    logger.debug("listening on UDP discovery port \(MOMPort.discoveryRequest)")
+    controller.logger.debug("listening on UDP discovery port \(MOMPort.discoveryRequest)")
     return d
   }
 
@@ -111,7 +111,7 @@ final class MOMDiscovery: @unchecked Sendable {
         address: unicastTo ?? INADDR_BROADCAST.bigEndian
       )
       let kind = unicastTo == nil ? "broadcast" : "unicast"
-      logger
+      controller.logger
         .debug(
           "sending \(kind) discovery notification message from \(interface.addressString) to \(Socket.format(dst.sin_addr)):\(MOMPort.discoveryReply) (via \(interface.name))"
         )
@@ -136,7 +136,7 @@ final class MOMDiscovery: @unchecked Sendable {
       // Echo back to sender
       Socket.send(payload, on: fd, to: senderAddress, pktInfo: pi)
     } else if payload.starts(with: Self.discoveryMagic) {
-      logger.debug("discovery request from \(Socket.format(senderAddress.sin_addr))")
+      controller.logger.debug("discovery request from \(Socket.format(senderAddress.sin_addr))")
       respondToDiscovery(controller: controller, requestPktInfo: pi, sourceAddress: senderAddress)
     }
   }
@@ -158,7 +158,7 @@ final class MOMDiscovery: @unchecked Sendable {
       .string(o.serialNumber),
     ]
     let message = MOMMessage.encode(.enumerateDevices | type, params: params) ?? Data()
-    logger
+    controller.logger
       .debug(
         "created discovery \(isSolicited ? "reply" : "notification") message \(wireDescription(message))"
       )
@@ -184,7 +184,7 @@ final class MOMDiscovery: @unchecked Sendable {
     let replyTarget: in_addr_t
     if controller._options.restrictToSpecifiedHost != nil {
       guard controller._peerAddressAllowed(sourceAddress.sin_addr) else {
-        logger
+        controller.logger
           .debug(
             "ignoring discovery request from \(Socket.format(sourceAddress.sin_addr)) (host restriction)"
           )
@@ -201,7 +201,7 @@ final class MOMDiscovery: @unchecked Sendable {
     )
     let body = MOMDiscovery.discoveryReplyBytes(controller: controller, isSolicited: true)
     let kind = replyTarget == INADDR_BROADCAST.bigEndian ? "broadcast" : "unicast"
-    logger
+    controller.logger
       .debug(
         "sending \(kind) discovery reply message from \(Socket.format(sourceAddress.sin_addr)) to \(Socket.format(replyAddr.sin_addr)):\(MOMPort.discoveryReply)"
       )

@@ -14,6 +14,7 @@ import FoundationEssentials
 #else
 import Foundation
 #endif
+import Logging
 
 public typealias MOMSendReply = (
   _ controller: MOMController,
@@ -48,6 +49,10 @@ public final class MOMController: @unchecked Sendable {
   let queue: DispatchQueue
   let handler: MOMHandler
 
+  /// Logger used for this controller's wire/protocol diagnostics. Supplied by
+  /// the application at init time, or `defaultLogger` otherwise.
+  public let logger: Logger
+
   /// Unique per-controller marker set on `queue`, so public APIs can detect
   /// re-entrant calls from inside handler callbacks (which run on `queue`)
   /// and execute inline instead of deadlocking in `queue.sync`. The C API
@@ -77,10 +82,12 @@ public final class MOMController: @unchecked Sendable {
   public init(
     options: MOMOptions = MOMOptions(),
     queue: DispatchQueue,
+    logger: Logger? = nil,
     handler: @escaping MOMHandler
   ) {
     _options = options
     self.queue = queue
+    self.logger = logger ?? defaultLogger
     self.handler = handler
     queue.setSpecific(key: queueKey, value: ())
 

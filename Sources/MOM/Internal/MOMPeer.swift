@@ -165,7 +165,8 @@ enum MOMPeer {
     guard !peer.closed else { return }
     peer.closed = true
     let reason = error.map { " (errno \($0): \(errnoToString($0)))" } ?? ""
-    logger.debug("closing peer \(peer.peerName ?? "?")\(reason)")
+    (peer.controller?.logger ?? defaultLogger)
+      .debug("closing peer \(peer.peerName ?? "?")\(reason)")
 
     if let c = peer.controller {
       if c._isPeerMaster(peer) { c._setMasterPeer(nil) }

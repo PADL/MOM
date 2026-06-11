@@ -10,10 +10,11 @@
 
 import Logging
 
-/// Library logger. The backend is whatever the application bootstrapped
-/// `LoggingSystem` with; wire/protocol diagnostics are logged at `.debug`
-/// and enabled by default.
-let logger: Logger = {
+/// Default library logger, used when the application does not supply its own
+/// via `MOMController.init(logger:)`. The backend is whatever the application
+/// bootstrapped `LoggingSystem` with; wire/protocol diagnostics are logged at
+/// `.debug` and enabled by default.
+let defaultLogger: Logger = {
   var logger = Logger(label: "com.padl.MOM")
   logger.logLevel = .debug
   return logger
