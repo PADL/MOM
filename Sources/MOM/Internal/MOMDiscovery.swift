@@ -24,7 +24,7 @@ import Foundation
 
 /// UDP discovery socket on `MOMPort.discoveryRequest` (10002). Responds to
 /// `\n\0NTP Echo` echo requests (echo back to sender) and `?edev\r` discovery
-/// requests (reply on port 10004 with `IP_PKTINFO` source-address pinning).
+/// requests (reply on port 10004 from the address the request was sent to).
 ///
 /// Like the hardware MOM, solicited discovery replies are *broadcast* unless
 /// a host restriction is configured, in which case they are unicast to the
@@ -85,7 +85,7 @@ final class MOMDiscovery: @unchecked Sendable {
     closeSendSockets()
   }
 
-  // MARK: - Source-pinned send
+  // MARK: - Sending from a specific source address
 
   /// Send sockets bound to a source address, keyed by it. Confined to
   /// `controller.queue` like all sends. Bounded by the host's addresses and
@@ -121,13 +121,13 @@ final class MOMDiscovery: @unchecked Sendable {
 
   /// Send `body` to `dst` with `source` as the datagram's source address,
   /// from a socket bound to it (C parity:
-  /// `sendDiscoveryReplyOnInterface`). Binding is what actually pins the
+  /// `sendDiscoveryReplyOnInterface`). Binding is what actually sets the
   /// source — Darwin honors `ipi_spec_dst` only on a bound socket (unbound,
   /// `sendmsg` fails unless an interface is selected via `ipi_ifindex`, and
   /// then the kernel stamps that interface's *primary* address — wrong for
-  /// controllers pinned to an interface alias), and Windows' `IN_PKTINFO`
+  /// controllers bound to an interface alias), and Windows' `IN_PKTINFO`
   /// has no spec_dst field at all.
-  private func sendPinned(
+  private func send(
     _ body: [UInt8],
     from source: in_addr,
     to dst: sockaddr_in,
@@ -170,7 +170,7 @@ final class MOMDiscovery: @unchecked Sendable {
         .debug(
           "sending \(kind) discovery notification message from \(interface.addressString) to \(Socket.format(dst.sin_addr)):\(MOMPort.discoveryReply) (via \(interface.name))"
         )
-      self.sendPinned(body, from: interface.address, to: dst, controller: controller)
+      self.send(body, from: interface.address, to: dst, controller: controller)
       return .continue // keep going across all interfaces
     }
   }
@@ -260,7 +260,7 @@ final class MOMDiscovery: @unchecked Sendable {
     // provided it is one of ours (C parity: the reply path enumerated
     // interfaces and bound the matching one). A spec_dst that matches no
     // interface — a broadcast arrival whose spec_dst was substituted with
-    // the sender — falls back to the shared socket, unpinned.
+    // the sender — falls back to the shared socket without a specific source address.
     var source: in_addr?
     MOMEnumerateInterfaces { interface -> MOMStatus in
       guard interface.address.s_addr == requestPktInfo.ipi_spec_dst.s_addr else {
@@ -277,7 +277,7 @@ final class MOMDiscovery: @unchecked Sendable {
       )
 
     if let source {
-      sendPinned(Array(body), from: source, to: replyAddr, controller: controller)
+      send(Array(body), from: source, to: replyAddr, controller: controller)
     } else {
       Socket.send(Array(body), on: fd, to: replyAddr, pktInfo: requestPktInfo)
     }
