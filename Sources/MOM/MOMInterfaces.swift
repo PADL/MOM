@@ -37,9 +37,10 @@ public struct MOMInterface {
 
   /// A persistent identifier for the interface, where the platform has one:
   /// on Windows this is the adapter GUID, on Darwin the UUID of the network
-  /// service configured on the interface (both stable across reboots and
-  /// address changes). Other POSIX platforms have no equivalent, so it is
-  /// nil there.
+  /// service that configured `address` (both stable across reboots and
+  /// address changes). An interface carrying several services — e.g. an
+  /// Ethernet port with aliases — thus yields a distinct UUID per entry.
+  /// Other POSIX platforms have no equivalent, so it is nil there.
   ///
   /// Spelled module-qualified because WinSDK exports the C `UUID` typedef
   /// (an alias of `GUID`), which would otherwise be ambiguous here.
@@ -178,7 +179,7 @@ extension MOMInterface {
     defer { freeifaddrs(head) }
 
     #if canImport(SystemConfiguration)
-    let uuids = uuidsByInterfaceName
+    let uuids = uuidsByAddress
     #endif
 
     var interfaces: [MOMInterface] = []
@@ -195,8 +196,11 @@ extension MOMInterface {
       if (flags & Int(IFF_LOOPBACK)) != 0 { continue }
 
       let name = String(cString: cur.pointee.ifa_name)
+      let address = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+        $0.pointee.sin_addr
+      }
       #if canImport(SystemConfiguration)
-      let uuid = uuids[name]
+      let uuid = uuids[address.s_addr]
       #else
       let uuid: UUID? = nil
       #endif
@@ -205,21 +209,23 @@ extension MOMInterface {
         name: name,
         index: if_nametoindex(cur.pointee.ifa_name),
         uuid: uuid,
-        address: addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-          $0.pointee.sin_addr
-        }
+        address: address
       ))
     }
     return interfaces
   }
 
   #if canImport(SystemConfiguration)
-  /// Map BSD interface names (en0, …) to a persistent identifier: the ID of
-  /// the network service running on the interface, recovered from the
-  /// dynamic store (`State:/Network/Service/<serviceID>/IPv4`). Service IDs
-  /// are UUIDs, stable across reboots and address changes. Where several
-  /// services share an interface, the lexically first wins.
-  private static var uuidsByInterfaceName: [String: UUID] {
+  /// Map IPv4 addresses (`in_addr_t`, network byte order) to a persistent
+  /// identifier: the ID of the network service that configured the address,
+  /// recovered from the dynamic store
+  /// (`State:/Network/Service/<serviceID>/IPv4`). Service IDs are UUIDs,
+  /// stable across reboots and address changes. Keying by address rather
+  /// than interface name keeps aliased services on one interface (e.g.
+  /// several services on en0) distinct. Only each service's primary address
+  /// is mapped, so a service's secondary addresses carry no UUID — exactly
+  /// one enumerated entry per service does.
+  private static var uuidsByAddress: [in_addr_t: UUID] {
     guard let store = SCDynamicStoreCreate(nil, "MOMInterfaces" as CFString, nil, nil)
     else { return [:] }
 
@@ -232,17 +238,21 @@ extension MOMInterface {
     guard let keys = SCDynamicStoreCopyKeyList(store, pattern) as? [String]
     else { return [:] }
 
-    var uuids: [String: UUID] = [:]
+    var uuids: [in_addr_t: UUID] = [:]
     for key in keys.sorted() {
       // key is "State:/Network/Service/<serviceID>/IPv4"
       guard let props = SCDynamicStoreCopyValue(store, key as CFString)
         as? [String: Any],
-        let name = props[kSCPropInterfaceName as String] as? String,
-        uuids[name] == nil,
+        let addresses = props[kSCPropNetIPv4Addresses as String] as? [String],
+        let firstAddress = addresses.first,
         let serviceID = key.split(separator: "/").dropLast().last,
         let uuid = UUID(uuidString: String(serviceID))
       else { continue }
-      uuids[name] = uuid
+      var address = in_addr()
+      guard inet_pton(AF_INET, firstAddress, &address) == 1,
+            uuids[address.s_addr] == nil
+      else { continue }
+      uuids[address.s_addr] = uuid
     }
     return uuids
   }
