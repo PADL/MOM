@@ -443,6 +443,9 @@ private let sysAccept = Glibc.accept
 
 #if canImport(WinSDK)
 private let IPPROTO_TCP = WinSDK.IPPROTO_TCP.rawValue
+#elseif canImport(Glibc)
+let IPPROTO_TCP = Int32(Glibc.IPPROTO_TCP)
+let IPPROTO_IP = Int32(Glibc.IPPROTO_IP)
 #endif
 
 /// Errno value of the last socket operation.
