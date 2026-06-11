@@ -27,11 +27,6 @@
 // Sources start suspended; `resume()` begins delivery (matching DispatchSource).
 
 import Dispatch
-#if canImport(FoundationEssentials)
-import FoundationEssentials
-#else
-import Foundation
-#endif
 
 #if !canImport(WinSDK)
 
@@ -67,10 +62,8 @@ final class IOReadinessSource: @unchecked Sendable {
 
 #else
 
+import Synchronization
 import WinSDK
-// The poller needs Thread and NSLock, which live in the full Foundation
-// module, not FoundationEssentials.
-import Foundation
 
 /// Windows backing: a registration with `WSAPoller.shared`.
 final class IOReadinessSource: @unchecked Sendable {
@@ -123,7 +116,10 @@ final class IOReadinessSource: @unchecked Sendable {
 final class WSAPoller: @unchecked Sendable {
   static let shared = WSAPoller()
 
-  let lock = NSLock()
+  // Guards `active`, `started`, and every source's mutable fields. The
+  // protected value is Void: the state lives on the poller and the sources,
+  // and the mutex provides the critical sections.
+  let lock = Mutex<Void>(())
   private var active: [IOReadinessSource] = []
   private var started = false
 
@@ -132,64 +128,75 @@ final class WSAPoller: @unchecked Sendable {
   private let pollTimeoutMs: INT = 20
 
   func setEventHandler(_ source: IOReadinessSource, _ handler: @escaping @Sendable () -> ()) {
-    lock.lock(); defer { lock.unlock() }
-    source.eventHandler = handler
+    lock.withLock { _ in source.eventHandler = handler }
   }
 
   func setCancelHandler(_ source: IOReadinessSource, _ handler: @escaping @Sendable () -> ()) {
-    lock.lock(); defer { lock.unlock() }
-    source.cancelHandler = handler
+    lock.withLock { _ in source.cancelHandler = handler }
   }
 
   func activate(_ source: IOReadinessSource) {
-    lock.lock(); defer { lock.unlock() }
-    guard source.state != .cancelled else { return }
-    source.state = .active
-    if !active.contains(where: { $0 === source }) {
-      active.append(source)
+    lock.withLock { _ in
+      guard source.state != .cancelled else { return }
+      source.state = .active
+      if !active.contains(where: { $0 === source }) {
+        active.append(source)
+      }
+      startIfNeededLocked()
     }
-    startIfNeededLocked()
   }
 
   func deactivate(_ source: IOReadinessSource) {
-    lock.lock(); defer { lock.unlock() }
-    guard source.state != .cancelled else { return }
-    source.state = .suspended
-    active.removeAll { $0 === source }
+    lock.withLock { _ in
+      guard source.state != .cancelled else { return }
+      source.state = .suspended
+      active.removeAll { $0 === source }
+    }
   }
 
   func cancel(_ source: IOReadinessSource) {
-    lock.lock()
-    guard source.state != .cancelled else { lock.unlock(); return }
-    source.state = .cancelled
-    active.removeAll { $0 === source }
-    let handler = source.cancelHandler
-    let queue = source.queue
-    lock.unlock()
+    var handler: (@Sendable () -> ())?
+    let cancelled: Bool = lock.withLock { _ in
+      guard source.state != .cancelled else { return false }
+      source.state = .cancelled
+      active.removeAll { $0 === source }
+      handler = source.cancelHandler
+      return true
+    }
+    guard cancelled else { return }
     // Match DispatchSource: the cancel handler runs asynchronously on the
     // queue (it closes the fd).
-    queue.async { handler?() }
+    source.queue.async { [handler] in handler?() }
   }
 
   func isCancelled(_ source: IOReadinessSource) -> Bool {
-    lock.lock(); defer { lock.unlock() }
-    return source.state == .cancelled
+    lock.withLock { _ in source.state == .cancelled }
   }
 
+  /// Called with `lock` held.
   private func startIfNeededLocked() {
     guard !started else { return }
     started = true
-    let thread = Thread { [weak self] in self?.run() }
-    thread.name = "MOM.WSAPoller"
-    thread.stackSize = 1 << 20
-    thread.start()
+    // A raw Win32 thread, so the poller has no Foundation dependency. The
+    // retain handed to the thread is deliberately never balanced: the
+    // poller is a process-lifetime singleton and `run()` never returns.
+    let context = Unmanaged.passRetained(self).toOpaque()
+    let thread = CreateThread(nil, SIZE_T(1 << 20), { context in
+      Unmanaged<WSAPoller>.fromOpaque(context!).takeUnretainedValue().run()
+      return 0
+    }, context, 0, nil)
+    if let thread { CloseHandle(thread) }
   }
 
   private func run() {
+    "MOM.WSAPoller".withCString(encodedAs: UTF16.self) {
+      _ = SetThreadDescription(GetCurrentThread(), $0)
+    }
+
     while true {
-      lock.lock()
-      let pollable = active.filter { $0.state == .active && !$0.inFlight }
-      lock.unlock()
+      let pollable = lock.withLock { _ in
+        active.filter { $0.state == .active && !$0.inFlight }
+      }
 
       if pollable.isEmpty {
         Sleep(DWORD(pollTimeoutMs))
@@ -217,12 +224,14 @@ final class WSAPoller: @unchecked Sendable {
         // Any nonzero revents (data, or POLLHUP/POLLERR/POLLNVAL) wakes the
         // handler so it can observe EOF/errors via recv/send.
         let source = pollable[index]
-        lock.lock()
-        guard source.state == .active, !source.inFlight else { lock.unlock(); continue }
-        source.inFlight = true
-        let handler = source.eventHandler
-        let queue = source.queue
-        lock.unlock()
+        var handler: (@Sendable () -> ())?
+        let claimed: Bool = lock.withLock { _ in
+          guard source.state == .active, !source.inFlight else { return false }
+          source.inFlight = true
+          handler = source.eventHandler
+          return true
+        }
+        guard claimed else { continue }
 
         // `source` is captured strongly so the inFlight latch is always
         // cleared. Re-check state on the queue before delivering: a cancel
@@ -230,17 +239,11 @@ final class WSAPoller: @unchecked Sendable {
         // have closed the fd (and the kernel may have reused it), and a
         // suspended source must not fire — level-triggered polling will
         // rediscover readiness after resume().
-        queue.async {
+        source.queue.async { [handler] in
           let poller = WSAPoller.shared
-          poller.lock.lock()
-          let deliver = source.state == .active
-          poller.lock.unlock()
-
+          let deliver = poller.lock.withLock { _ in source.state == .active }
           if deliver { handler?() }
-
-          poller.lock.lock()
-          source.inFlight = false
-          poller.lock.unlock()
+          poller.lock.withLock { _ in source.inFlight = false }
         }
       }
     }
