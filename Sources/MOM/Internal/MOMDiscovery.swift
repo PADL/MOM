@@ -73,6 +73,7 @@ final class MOMDiscovery: @unchecked Sendable {
 
   func invalidate() {
     source.cancel()
+    closeSendSockets()
   }
 
   deinit {
@@ -81,12 +82,45 @@ final class MOMDiscovery: @unchecked Sendable {
     if !source.isCancelled {
       source.cancel()
     }
+    closeSendSockets()
   }
 
   // MARK: - Source-pinned send
 
+  /// Send sockets bound to a source address, keyed by it. Confined to
+  /// `controller.queue` like all sends. Bounded by the host's addresses and
+  /// torn down with the discovery object, which is recreated on every
+  /// discoverability cycle — so a network change naturally drops sockets
+  /// bound to vanished addresses.
+  private var sendSockets: [in_addr_t: Socket.SocketDescriptor] = [:]
+
+  private func closeSendSockets() {
+    for fd in sendSockets.values {
+      Socket.close(fd)
+    }
+    sendSockets.removeAll()
+  }
+
+  /// The send socket bound to `source`, creating it on first use.
+  private func sendSocket(
+    boundTo source: in_addr,
+    controller: MOMController
+  ) -> Socket.SocketDescriptor? {
+    if let fd = sendSockets[source.s_addr] { return fd }
+    guard let sock = Socket.udp() else { return nil }
+    sock.setBroadcast()
+    guard sock.bind(port: 0, address: source.s_addr) else {
+      controller.logger
+        .debug("failed to bind discovery send socket to \(Socket.format(source))")
+      return nil
+    }
+    let fd = sock.detach()
+    sendSockets[source.s_addr] = fd
+    return fd
+  }
+
   /// Send `body` to `dst` with `source` as the datagram's source address,
-  /// from a fresh socket bound to it (C parity:
+  /// from a socket bound to it (C parity:
   /// `sendDiscoveryReplyOnInterface`). Binding is what actually pins the
   /// source — Darwin honors `ipi_spec_dst` only on a bound socket (unbound,
   /// `sendmsg` fails unless an interface is selected via `ipi_ifindex`, and
@@ -99,19 +133,13 @@ final class MOMDiscovery: @unchecked Sendable {
     to dst: sockaddr_in,
     controller: MOMController
   ) {
-    guard let sock = Socket.udp() else { return }
-    if dst.sin_addr.s_addr == INADDR_BROADCAST.bigEndian {
-      sock.setBroadcast()
-    }
-    guard sock.bind(port: 0, address: source.s_addr) else {
-      controller.logger
-        .debug("failed to bind discovery send socket to \(Socket.format(source))")
-      return
-    }
-    let sendFD = sock.detach()
-    defer { Socket.close(sendFD) }
+    guard let sendFD = sendSocket(boundTo: source, controller: controller) else { return }
     let pi = Socket.pktInfo(interfaceIndex: 0, specDst: source)
-    Socket.send(body, on: sendFD, to: dst, pktInfo: pi)
+    if !Socket.send(body, on: sendFD, to: dst, pktInfo: pi) {
+      // The bound address may have gone away mid-cycle; rebind on next use.
+      Socket.close(sendFD)
+      sendSockets.removeValue(forKey: source.s_addr)
+    }
   }
 
   // MARK: - Unsolicited announcement
