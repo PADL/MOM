@@ -40,11 +40,18 @@ public struct MOMInterface {
   /// The OS interface index (as used for `IP_PKTINFO` source pinning).
   public let index: UInt32
 
-  /// A persistent identifier for the interface, where the platform has one:
-  /// on Windows this is the adapter GUID, on Darwin the UUID of the network
-  /// service that configured `address` (both stable across reboots and
-  /// address changes). An interface carrying several services — e.g. an
-  /// Ethernet port with aliases — thus yields a distinct UUID per entry.
+  /// A persistent identifier for the interface, where the platform has one.
+  ///
+  /// On Darwin this is the UUID of the network *service* that configured
+  /// `address`, stable across reboots *and* address changes; an interface
+  /// carrying several services — e.g. an Ethernet port with aliases — thus
+  /// yields a distinct UUID per entry.
+  ///
+  /// Windows has no per-address persistent identifier (the adapter GUID is
+  /// shared by every alias on a NIC), so this is instead an RFC 9562 v8 UUID
+  /// derived from `address` itself — see `all`. It is distinct per alias but,
+  /// unlike Darwin, NOT stable across a renumber.
+  ///
   /// Other POSIX platforms have no equivalent, so it is nil there.
   ///
   /// Spelled module-qualified because WinSDK exports the C `UUID` typedef
@@ -150,30 +157,44 @@ extension MOMInterface {
       let name = a.pointee.FriendlyName.map { String(decodingCString: $0, as: UTF16.self) }
         ?? a.pointee.AdapterName.map { String(cString: $0) } ?? ""
 
-      // AdapterName is the adapter GUID in registry form ("{XXXXXXXX-…}"),
-      // persistent across reboots.
-      let uuid = a.pointee.AdapterName.flatMap { cString -> UUID? in
-        var guid = String(cString: cString)
-        if guid.hasPrefix("{"), guid.hasSuffix("}") {
-          guid = String(guid.dropFirst().dropLast())
-        }
-        return UUID(uuidString: guid)
-      }
+      // AdapterName (the registry-form adapter GUID) is no longer used as the
+      // identifier — it is shared by every alias on the NIC — but remains the
+      // fallback for `name` above.
 
+      // One entry per unicast address: FirstUnicastAddress is the full list of
+      // configured IPv4 addresses on the adapter, so secondary addresses
+      // (aliases) are walked here too.
       var unicast = a.pointee.FirstUnicastAddress
       while let u = unicast {
         defer { unicast = u.pointee.Next }
         guard let sa = u.pointee.Address.lpSockaddr,
-              sa.pointee.sa_family == sa_family_t(AF_INET)
+              sa.pointee.sa_family == sa_family_t(AF_INET),
+              // Settled addresses only: skip ones still Tentative, or already
+              // Deprecated/Duplicate, that we should not bind or advertise.
+              u.pointee.DadState == IpDadStatePreferred
         else { continue }
+
+        let address = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
+          $0.pointee.sin_addr
+        }
+
+        // Windows has no per-address persistent identifier — the adapter GUID
+        // is shared by every alias on the NIC — so synthesise an RFC 9562 v8
+        // (custom) UUID from the address itself: the 32-bit IPv4 in the
+        // trailing four bytes, all other bits zero but for the version (8) and
+        // variant markers, e.g. 10.0.1.5 → 00000000-0000-8000-8000-00000a000105.
+        // Trailing, not leading: the Stream Deck plugin derives a device serial
+        // from this UUID's base64 tail, so a leading address would collapse
+        // every alias to a single serial. v8 also cannot collide with the
+        // random v4 service UUIDs Darwin emits.
+        let ip = withUnsafeBytes(of: address.s_addr) { Array($0) }
 
         interfaces.append(MOMInterface(
           name: name,
           index: a.pointee.IfIndex,
-          uuid: uuid,
-          address: sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-            $0.pointee.sin_addr
-          }
+          uuid: UUID(uuid: (0, 0, 0, 0, 0, 0, 0x80, 0, 0x80, 0, 0, 0,
+                            ip[0], ip[1], ip[2], ip[3])),
+          address: address
         ))
       }
     }
