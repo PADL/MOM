@@ -20,7 +20,12 @@ import FoundationEssentials
 #else
 import Foundation
 #endif
-#if canImport(SystemConfiguration)
+// SystemConfiguration imports on iOS and Mac Catalyst, but the SCDynamicStore
+// APIs used below are macOS-only (API_UNAVAILABLE on iOS/tvOS/watchOS, and
+// hence on Catalyst, which reports os(iOS)). Gate on os(macOS), not
+// canImport(SystemConfiguration), so the framework is only touched where the
+// dynamic store actually exists.
+#if os(macOS)
 import SystemConfiguration
 #endif
 
@@ -184,7 +189,7 @@ extension MOMInterface {
     guard getifaddrs(&head) == 0 else { return [] }
     defer { freeifaddrs(head) }
 
-    #if canImport(SystemConfiguration)
+    #if os(macOS)
     let uuids = uuidsByAddress
     #endif
 
@@ -205,7 +210,7 @@ extension MOMInterface {
       let address = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
         $0.pointee.sin_addr
       }
-      #if canImport(SystemConfiguration)
+      #if os(macOS)
       let uuid = uuids[address.s_addr]
       #else
       let uuid: UUID? = nil
@@ -221,7 +226,7 @@ extension MOMInterface {
     return interfaces
   }
 
-  #if canImport(SystemConfiguration)
+  #if os(macOS)
   /// Map IPv4 addresses (`in_addr_t`, network byte order) to a persistent
   /// identifier: the ID of the network service that configured the address,
   /// recovered from the dynamic store
