@@ -119,27 +119,35 @@ final class MOMDiscovery: @unchecked Sendable {
     return fd
   }
 
-  /// Send `body` to `dst` with `source` as the datagram's source address,
-  /// from a socket bound to it (C parity:
-  /// `sendDiscoveryReplyOnInterface`). Binding is what actually sets the
-  /// source — Darwin honors `ipi_spec_dst` only on a bound socket (unbound,
-  /// `sendmsg` fails unless an interface is selected via `ipi_ifindex`, and
-  /// then the kernel stamps that interface's *primary* address — wrong for
-  /// controllers bound to an interface alias), and Windows' `IN_PKTINFO`
-  /// has no spec_dst field at all.
+  /// Send `body` to `dst` with `source` as the datagram's source address.
+  ///
+  /// On Darwin/Linux this must come from a socket *bound* to `source`: the
+  /// kernel honors `ipi_spec_dst` only on a bound socket (unbound, `sendmsg`
+  /// fails unless an interface is selected via `ipi_ifindex`, and then the
+  /// kernel stamps that interface's *primary* address — wrong for controllers
+  /// bound to an interface alias). C parity: `sendDiscoveryReplyOnInterface`.
+  ///
+  /// Windows has no `ipi_spec_dst`; instead `IP_PKTINFO.ipi_addr` sets the
+  /// source directly on any socket, so send from the shared discovery socket.
+  /// A per-source bind there would also move the source off the discovery
+  /// port to an ephemeral one.
   private func send(
     _ body: [UInt8],
     from source: in_addr,
     to dst: sockaddr_in,
     controller: MOMController
   ) {
-    guard let sendFD = sendSocket(boundTo: source, controller: controller) else { return }
     let pi = Socket.pktInfo(interfaceIndex: 0, specDst: source)
+    #if canImport(WinSDK)
+    Socket.send(body, on: self.fd, to: dst, pktInfo: pi)
+    #else
+    guard let sendFD = sendSocket(boundTo: source, controller: controller) else { return }
     if !Socket.send(body, on: sendFD, to: dst, pktInfo: pi) {
       // The bound address may have gone away mid-cycle; rebind on next use.
       Socket.close(sendFD)
       sendSockets.removeValue(forKey: source.s_addr)
     }
+    #endif
   }
 
   // MARK: - Unsolicited announcement
@@ -258,26 +266,33 @@ final class MOMDiscovery: @unchecked Sendable {
 
     // Reply with the address the request was addressed to as the source,
     // provided it is one of ours (C parity: the reply path enumerated
-    // interfaces and bound the matching one). A spec_dst that matches no
-    // interface — a broadcast arrival whose spec_dst was substituted with
-    // the sender — falls back to the shared socket without a specific source address.
+    // interfaces and bound the matching one). Prefer the exact address
+    // (`ipi_spec_dst`) for Darwin interface-alias precision; fall back to the
+    // arrival interface (`ipi_ifindex`) — on Windows `ipi_addr` for a received
+    // broadcast is the broadcast address, which matches no interface, so the
+    // index is the only reliable signal.
     var source: in_addr?
+    var sourceByIndex: in_addr?
     MOMEnumerateInterfaces { interface -> MOMStatus in
-      guard interface.address.s_addr == requestPktInfo.ipi_spec_dst.s_addr else {
-        return .continue
+      if interface.address.s_addr == requestPktInfo.ipi_spec_dst.s_addr {
+        source = interface.address
+        return .success
       }
-      source = interface.address
-      return .success
+      if UInt32(interface.index) == UInt32(requestPktInfo.ipi_ifindex) {
+        sourceByIndex = interface.address
+      }
+      return .continue
     }
+    let replySource = source ?? sourceByIndex
 
     let kind = replyTarget == INADDR_BROADCAST.bigEndian ? "broadcast" : "unicast"
     controller.logger
       .debug(
-        "sending \(kind) discovery reply message from \(source.map(Socket.format) ?? "?") to \(Socket.format(replyAddr.sin_addr)):\(MOMPort.discoveryReply.rawValue)"
+        "sending \(kind) discovery reply message from \(replySource.map(Socket.format) ?? "?") to \(Socket.format(replyAddr.sin_addr)):\(MOMPort.discoveryReply.rawValue)"
       )
 
-    if let source {
-      send(Array(body), from: source, to: replyAddr, controller: controller)
+    if let replySource {
+      send(Array(body), from: replySource, to: replyAddr, controller: controller)
     } else {
       Socket.send(Array(body), on: fd, to: replyAddr, pktInfo: requestPktInfo)
     }
