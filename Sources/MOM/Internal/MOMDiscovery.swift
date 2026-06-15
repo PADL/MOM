@@ -44,7 +44,7 @@ final class MOMDiscovery: @unchecked Sendable {
     sock.setReusePort()
     sock.setBroadcast()
 
-    guard sock.bind(port: MOMPort.discoveryRequest) else { return nil }
+    guard sock.bind(port: MOMPort.discoveryRequest.rawValue) else { return nil }
     // ^ sock deinit closes the fd on failure
 
     // Non-blocking so recvmsg() / sendmsg() can't stall the dispatch queue.
@@ -62,7 +62,7 @@ final class MOMDiscovery: @unchecked Sendable {
       Socket.close(fd)
     }
     src.resume()
-    controller.logger.debug("listening on UDP discovery port \(MOMPort.discoveryRequest)")
+    controller.logger.debug("listening on UDP discovery port \(MOMPort.discoveryRequest.rawValue)")
     return d
   }
 
@@ -162,13 +162,13 @@ final class MOMDiscovery: @unchecked Sendable {
       }
 
       let dst = Socket.ipv4Address(
-        port: MOMPort.discoveryReply,
+        port: MOMPort.discoveryReply.rawValue,
         address: unicastTo ?? INADDR_BROADCAST.bigEndian
       )
       let kind = unicastTo == nil ? "broadcast" : "unicast"
       controller.logger
         .debug(
-          "sending \(kind) discovery notification message from \(interface.addressString) to \(Socket.format(dst.sin_addr)):\(MOMPort.discoveryReply) (via \(interface.name))"
+          "sending \(kind) discovery notification message from \(interface.addressString) to \(Socket.format(dst.sin_addr)):\(MOMPort.discoveryReply.rawValue) (via \(interface.name))"
         )
       self.send(body, from: interface.address, to: dst, controller: controller)
       return .continue // keep going across all interfaces
@@ -251,7 +251,7 @@ final class MOMDiscovery: @unchecked Sendable {
     }
 
     let replyAddr = Socket.ipv4Address(
-      port: MOMPort.discoveryReply,
+      port: MOMPort.discoveryReply.rawValue,
       address: replyTarget
     )
     let body = MOMDiscovery.discoveryReplyBytes(controller: controller, isSolicited: true)
@@ -273,7 +273,7 @@ final class MOMDiscovery: @unchecked Sendable {
     let kind = replyTarget == INADDR_BROADCAST.bigEndian ? "broadcast" : "unicast"
     controller.logger
       .debug(
-        "sending \(kind) discovery reply message from \(source.map(Socket.format) ?? "?") to \(Socket.format(replyAddr.sin_addr)):\(MOMPort.discoveryReply)"
+        "sending \(kind) discovery reply message from \(source.map(Socket.format) ?? "?") to \(Socket.format(replyAddr.sin_addr)):\(MOMPort.discoveryReply.rawValue)"
       )
 
     if let source {

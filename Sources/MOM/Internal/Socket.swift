@@ -23,10 +23,10 @@ import FoundationEssentials
 import Foundation
 #endif
 
-enum MOMPort {
-  static let discoveryRequest: UInt16 = 10002
-  static let control: UInt16 = 10003
-  static let discoveryReply: UInt16 = 10004
+enum MOMPort: UInt16 {
+  case discoveryRequest = 10002
+  case control = 10003
+  case discoveryReply = 10004
 }
 
 /// An owned IPv4 socket file descriptor.

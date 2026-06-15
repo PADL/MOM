@@ -195,7 +195,7 @@ public final class MOMController: @unchecked Sendable {
       }
       let bindAddr = _localInterfaceAddress?.sin_addr.s_addr ?? INADDR_ANY
       guard let tcp = MOMListener.bind(
-        on: MOMPort.control,
+        on: MOMPort.control.rawValue,
         address: bindAddr,
         controller: self
       ),
