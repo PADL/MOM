@@ -180,6 +180,19 @@ struct Socket: ~Copyable {
     return Socket(clientFD)
   }
 
+  /// The socket's local address (`getsockname`), or nil on failure or a
+  /// non-IPv4 binding. For an accepted TCP socket this is the host address the
+  /// peer connected to, which identifies the arrival interface.
+  func localAddress() -> sockaddr_in? {
+    var sin = sockaddr_in()
+    let ok = sin.withSockaddr { sa, saLen in
+      var len = saLen
+      return sysGetsockname(fd, sa, &len) == 0
+    }
+    guard ok, sin.sin_family == sa_family_t(AF_INET) else { return nil }
+    return sin
+  }
+
   // MARK: - Address / pktinfo factories
 
   /// Build a `sockaddr_in`, handling the Darwin-only `sin_len` field and the
@@ -429,16 +442,19 @@ private let sysBind = Darwin.bind
 private let sysListen = Darwin.listen
 private let sysClose = Darwin.close
 private let sysAccept = Darwin.accept
+private let sysGetsockname = Darwin.getsockname
 #elseif canImport(WinSDK)
 private let sysBind = WinSDK.bind
 private let sysListen = WinSDK.listen
 private let sysClose = WinSDK.closesocket
 private let sysAccept = WinSDK.accept
+private let sysGetsockname = WinSDK.getsockname
 #elseif canImport(Glibc)
 private let sysBind = Glibc.bind
 private let sysListen = Glibc.listen
 private let sysClose = Glibc.close
 private let sysAccept = Glibc.accept
+private let sysGetsockname = Glibc.getsockname
 #endif
 
 #if canImport(WinSDK)

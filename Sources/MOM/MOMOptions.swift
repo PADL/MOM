@@ -92,6 +92,7 @@ public struct MOMOptions: @unchecked Sendable {
     public static let recoveryFirmwareTag = "recovery_firmware_tag"
     public static let recoveryFirmwareVersion = "recovery_firmware_version"
     public static let restrictToSpecifiedHost = "restrict_to_specified_host"
+    public static let restrictToInterfaceUUIDs = "restrict_to_interface_uuids"
     #else
     public static let deviceID = "kMOMDeviceID"
     public static let deviceName = "kMOMDeviceName"
@@ -103,6 +104,7 @@ public struct MOMOptions: @unchecked Sendable {
     public static let recoveryFirmwareTag = "kMOMRecoveryFirmwareTag"
     public static let recoveryFirmwareVersion = "kMOMRecoveryFirmwareVersion"
     public static let restrictToSpecifiedHost = "kMOMRestrictToSpecifiedHost"
+    public static let restrictToInterfaceUUIDs = "kMOMRestrictToInterfaceUUIDs"
     #endif
   }
 
@@ -167,6 +169,22 @@ public struct MOMOptions: @unchecked Sendable {
         dictionary[Key.restrictToSpecifiedHost] = newValue
       } else {
         dictionary.removeValue(forKey: Key.restrictToSpecifiedHost)
+      }
+    }
+  }
+
+  /// Physical-interface identifiers (`MOMInterface.physicalUUID`, as
+  /// `UUID.uuidString`) the device may bind/advertise on. When nil or empty,
+  /// all interfaces are used (no restriction). Otherwise discovery is
+  /// suppressed on any interface whose `physicalUUID` is absent from this set —
+  /// a host-wide policy independent of the per-device virtual bindings.
+  public var restrictToInterfaceUUIDs: [String]? {
+    get { dictionary[Key.restrictToInterfaceUUIDs] as? [String] }
+    set {
+      if let newValue, !newValue.isEmpty {
+        dictionary[Key.restrictToInterfaceUUIDs] = newValue
+      } else {
+        dictionary.removeValue(forKey: Key.restrictToInterfaceUUIDs)
       }
     }
   }

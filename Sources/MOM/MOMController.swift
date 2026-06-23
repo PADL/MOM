@@ -140,6 +140,85 @@ public final class MOMController: @unchecked Sendable {
     return _restrictAddresses.contains(peer.s_addr)
   }
 
+  /// `true` if `interface` may be bound/advertised on under the current
+  /// interface restriction (`MOMOptions.restrictToInterfaceUUIDs`). Returns
+  /// `true` unconditionally when the restriction is unset/empty, or when the
+  /// interface has no `physicalUUID` (no platform identity to match against).
+  ///
+  /// The option is persisted as strings (it round-trips through a plist/JSON
+  /// settings store), but matching is on parsed `UUID` values, so casing and
+  /// hyphenation differences don't matter; unparseable entries are ignored.
+  func _interfaceAllowed(_ interface: MOMInterface) -> Bool {
+    guard let allowed = _options.restrictToInterfaceUUIDs, !allowed.isEmpty
+    else { return true }
+    guard let physical = interface.physicalUUID else { return true }
+    return Set(allowed.compactMap { UUID(uuidString: $0) }).contains(physical)
+  }
+
+  /// `true` when the host-wide UUID restriction (`restrictToInterfaceUUIDs`)
+  /// is in force *and* applies. A cheap gate so callers can skip the interface
+  /// enumeration in `_arrivalInterface` on the common unrestricted path.
+  ///
+  /// The UUID filter is a backstop for the `INADDR_ANY` case only: a hard
+  /// interface bind (`localInterfaceAddress`) is authoritative and fully
+  /// defines the permitted interface, so the filter is *not* consulted while
+  /// one is set. This keeps a stale allow-list from blocking an interface the
+  /// caller has explicitly bound to (e.g. a router-assigned address).
+  var _interfaceRestrictionActive: Bool {
+    _localInterfaceAddress == nil && _options.restrictToInterfaceUUIDs?.isEmpty == false
+  }
+
+  /// Whether the active interface restriction permits acting on traffic that
+  /// arrived on `interface`. With no restriction in force, always `true`. With
+  /// a restriction active, `true` only when `interface` is non-nil and
+  /// allowed — an unidentifiable arrival interface fails closed, so traffic
+  /// can't leak off an excluded interface.
+  func _interfaceRestrictionPermits(_ interface: MOMInterface?) -> Bool {
+    guard _interfaceRestrictionActive else { return true }
+    guard let interface else { return false }
+    return _interfaceAllowed(interface)
+  }
+
+  /// Whether the device should respond to an inbound discovery datagram that
+  /// arrived with `pktInfo`. Honors the primary hard interface bind
+  /// (`localInterfaceAddress`) — the UDP discovery socket is bound `INADDR_ANY`
+  /// so it receives on every interface and must filter the announce/reply/echo
+  /// paths in software — and the host-wide `restrictToInterfaceUUIDs` backstop.
+  /// Fails closed under an active UUID restriction when the arrival interface
+  /// can't be identified, so traffic can't leak off an excluded interface.
+  func _shouldRespondOnArrival(_ pktInfo: in_pktinfo) -> Bool {
+    if let local = _localInterfaceAddress,
+       local.sin_addr.s_addr != pktInfo.ipi_spec_dst.s_addr
+    {
+      return false
+    }
+    guard _interfaceRestrictionActive else { return true }
+    return _interfaceRestrictionPermits(_arrivalInterface(for: pktInfo))
+  }
+
+  /// Resolve the local interface a datagram or connection arrived on from its
+  /// `IP_PKTINFO` (real, for UDP; or one synthesized from the accepted local
+  /// address for TCP). Prefers an exact `ipi_spec_dst` address match
+  /// (interface-alias precision on Darwin); falls back to the arrival
+  /// interface index (`ipi_ifindex`) — on Windows a received broadcast's
+  /// `ipi_addr` is the broadcast address, matching no interface, so the index
+  /// is the only reliable signal there. Returns nil if nothing matches.
+  func _arrivalInterface(for pktInfo: in_pktinfo) -> MOMInterface? {
+    var byAddress: MOMInterface?
+    var byIndex: MOMInterface?
+    MOMEnumerateInterfaces { interface -> MOMStatus in
+      if interface.address.s_addr == pktInfo.ipi_spec_dst.s_addr {
+        byAddress = interface
+        return .success
+      }
+      if UInt32(interface.index) == UInt32(pktInfo.ipi_ifindex) {
+        byIndex = interface
+      }
+      return .continue
+    }
+    return byAddress ?? byIndex
+  }
+
   public var options: MOMOptions {
     withQueue { _options }
   }

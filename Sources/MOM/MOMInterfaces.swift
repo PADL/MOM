@@ -62,6 +62,25 @@ public struct MOMInterface {
   public let uuid: Foundation.UUID?
   #endif
 
+  /// A persistent identifier for the *physical* interface this entry belongs
+  /// to, where the platform has one.
+  ///
+  /// Unlike `uuid` — which is deliberately per-address (a distinct value per
+  /// alias) so virtual MOM devices can bind each address independently — this
+  /// identifies the underlying interface, so every alias on it shares one
+  /// value. It is what a host-wide "bind only on these interfaces" policy keys
+  /// on, independent of how many addresses an interface carries.
+  ///
+  /// On Windows this is the adapter GUID (`AdapterName`); on Darwin it is the
+  /// network-service UUID (the same value as `uuid`, which is already
+  /// per-service rather than synthetic). Other POSIX platforms have no
+  /// equivalent, so it is nil there.
+  #if canImport(FoundationEssentials)
+  public let physicalUUID: FoundationEssentials.UUID?
+  #else
+  public let physicalUUID: Foundation.UUID?
+  #endif
+
   /// The interface's IPv4 unicast address, in network byte order.
   public let address: in_addr
 
@@ -154,12 +173,21 @@ extension MOMInterface {
             a.pointee.IfType != IF_TYPE_SOFTWARE_LOOPBACK
       else { continue }
 
+      let adapterName = a.pointee.AdapterName.map { String(cString: $0) }
       let name = a.pointee.FriendlyName.map { String(decodingCString: $0, as: UTF16.self) }
-        ?? a.pointee.AdapterName.map { String(cString: $0) } ?? ""
+        ?? adapterName ?? ""
 
-      // AdapterName (the registry-form adapter GUID) is no longer used as the
-      // identifier — it is shared by every alias on the NIC — but remains the
-      // fallback for `name` above.
+      // AdapterName (the registry-form adapter GUID, e.g. "{XXXX-…}") is shared
+      // by every alias on the NIC, so it is no longer the per-address `uuid`
+      // identifier — but it *is* the physical-interface identity used by the
+      // host-wide bind restriction, and remains the fallback for `name` above.
+      let physicalUUID = adapterName.flatMap { raw -> UUID? in
+        var guid = raw
+        if guid.hasPrefix("{"), guid.hasSuffix("}") {
+          guid = String(guid.dropFirst().dropLast())
+        }
+        return UUID(uuidString: guid)
+      }
 
       // One entry per unicast address: FirstUnicastAddress is the full list of
       // configured IPv4 addresses on the adapter, so secondary addresses
@@ -194,6 +222,7 @@ extension MOMInterface {
           index: a.pointee.IfIndex,
           uuid: UUID(uuid: (0, 0, 0, 0, 0, 0, 0x80, 0, 0x80, 0, 0, 0,
                             ip[0], ip[1], ip[2], ip[3])),
+          physicalUUID: physicalUUID,
           address: address
         ))
       }
@@ -232,15 +261,21 @@ extension MOMInterface {
         $0.pointee.sin_addr
       }
       #if os(macOS)
+      // On Darwin the service UUID is already a real per-service identifier
+      // (not a synthetic per-address one), so the physical-interface identity
+      // is the same value.
       let uuid = uuids[address.s_addr]
+      let physicalUUID = uuid
       #else
       let uuid: UUID? = nil
+      let physicalUUID: UUID? = nil
       #endif
 
       interfaces.append(MOMInterface(
         name: name,
         index: if_nametoindex(cur.pointee.ifa_name),
         uuid: uuid,
+        physicalUUID: physicalUUID,
         address: address
       ))
     }

@@ -93,6 +93,24 @@ final class MOMListener: @unchecked Sendable {
       return // client deinit closes the rejected connection
     }
 
+    // Host-wide interface restriction: the control listener binds INADDR_ANY,
+    // so a controller could otherwise connect over an excluded interface. The
+    // accepted socket's local address (getsockname) is the host address it
+    // connected to, which maps to the arrival interface. Fail closed when it
+    // can't be resolved under an active policy.
+    if controller._interfaceRestrictionActive {
+      let arrivalInterface = client.localAddress().flatMap { local in
+        controller._arrivalInterface(
+          for: Socket.pktInfo(interfaceIndex: 0, specDst: local.sin_addr)
+        )
+      }
+      guard controller._interfaceRestrictionPermits(arrivalInterface) else {
+        controller.logger
+          .debug("rejected connection from \(Socket.format(sin.sin_addr)) (interface restriction)")
+        return // client deinit closes the rejected connection
+      }
+    }
+
     client.setNoDelay()
     client.makeNonBlocking()
 

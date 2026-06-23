@@ -169,6 +169,13 @@ final class MOMDiscovery: @unchecked Sendable {
         return .continue
       }
 
+      // Host-wide interface restriction (backstop; skipped under a hard bind,
+      // which `restrictLocal` above already enforces): stay silent on
+      // interfaces the policy excludes.
+      if controller._interfaceRestrictionActive, !controller._interfaceAllowed(interface) {
+        return .continue
+      }
+
       let dst = Socket.ipv4Address(
         port: MOMPort.discoveryReply.rawValue,
         address: unicastTo ?? INADDR_BROADCAST.bigEndian
@@ -196,6 +203,15 @@ final class MOMDiscovery: @unchecked Sendable {
     }
 
     if payload.starts(with: Self.echoMagic) {
+      // The NTP-Echo reachability probe is gated like a discovery reply: a
+      // controller uses it to test which network reaches the device, so echoing
+      // on an interface the device isn't bound/permitted on would keep it "live"
+      // there and make the controller flap between interfaces.
+      guard controller._shouldRespondOnArrival(pi) else {
+        controller.logger
+          .trace("ignoring NTP echo addressed to \(Socket.format(pi.ipi_spec_dst)) (interface policy)")
+        return
+      }
       // Echo back to sender
       Socket.send(payload, on: fd, to: senderAddress, pktInfo: pi)
     } else if payload.starts(with: Self.discoveryMagic) {
@@ -233,11 +249,16 @@ final class MOMDiscovery: @unchecked Sendable {
     requestPktInfo: in_pktinfo,
     sourceAddress: sockaddr_in
   ) {
-    // If a specific local interface is configured, only reply when it matches
-    // the destination the request was addressed to (ipi_spec_dst).
-    if let local = controller._localInterfaceAddress,
-       local.sin_addr.s_addr != requestPktInfo.ipi_spec_dst.s_addr
-    {
+    // Reply only on the interface the device is bound/permitted on: honor the
+    // hard interface bind (`localInterfaceAddress`) and the host-wide UUID
+    // restriction backstop. Fails closed under an active restriction when the
+    // arrival interface can't be identified, so a request can't leak a reply
+    // off an excluded interface.
+    guard controller._shouldRespondOnArrival(requestPktInfo) else {
+      controller.logger
+        .trace(
+          "ignoring discovery request addressed to \(Socket.format(requestPktInfo.ipi_spec_dst)) (interface policy)"
+        )
       return
     }
 
@@ -271,19 +292,7 @@ final class MOMDiscovery: @unchecked Sendable {
     // arrival interface (`ipi_ifindex`) — on Windows `ipi_addr` for a received
     // broadcast is the broadcast address, which matches no interface, so the
     // index is the only reliable signal.
-    var source: in_addr?
-    var sourceByIndex: in_addr?
-    MOMEnumerateInterfaces { interface -> MOMStatus in
-      if interface.address.s_addr == requestPktInfo.ipi_spec_dst.s_addr {
-        source = interface.address
-        return .success
-      }
-      if UInt32(interface.index) == UInt32(requestPktInfo.ipi_ifindex) {
-        sourceByIndex = interface.address
-      }
-      return .continue
-    }
-    let replySource = source ?? sourceByIndex
+    let replySource = controller._arrivalInterface(for: requestPktInfo)?.address
 
     let kind = replyTarget == INADDR_BROADCAST.bigEndian ? "broadcast" : "unicast"
     controller.logger

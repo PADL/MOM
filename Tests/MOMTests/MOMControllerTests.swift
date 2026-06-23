@@ -165,4 +165,98 @@ final class MOMControllerTests: XCTestCase {
     XCTAssertGreaterThanOrEqual(count, 1)
     _ = s   // status sentinel — value depends on environment
   }
+
+  // MARK: - Interface restriction
+
+  private func makeController(
+    restrictTo uuids: [String]? = nil
+  ) -> (DispatchQueue, MOMController) {
+    var options = MOMOptions()
+    options.restrictToInterfaceUUIDs = uuids
+    let q = DispatchQueue(label: "test")
+    let c = MOMController(options: options, queue: q, handler: { _, _, _, _, _ in .success })
+    return (q, c)
+  }
+
+  func testInterfaceRestrictionInactiveByDefault() {
+    let (q, c) = makeController()
+    q.sync {
+      XCTAssertFalse(c._interfaceRestrictionActive)
+      // With no restriction, an unidentifiable arrival interface still passes.
+      XCTAssertTrue(c._interfaceRestrictionPermits(nil))
+    }
+  }
+
+  func testInterfaceRestrictionFailsClosedOnUnknownInterface() {
+    let (q, c) = makeController(restrictTo: [UUID().uuidString])
+    q.sync {
+      XCTAssertTrue(c._interfaceRestrictionActive)
+      // Active restriction + unresolved arrival interface ⇒ denied.
+      XCTAssertFalse(c._interfaceRestrictionPermits(nil))
+    }
+  }
+
+  func testInterfaceRestrictionPermitsAllowedAndDeniesOthers() {
+    // Build the allow-list from a real interface that has a physicalUUID, so
+    // there is something concrete to match. Skip where the platform exposes
+    // none (Linux, or a Darwin/Windows host with no service/adapter identity).
+    var withUUID: MOMInterface?
+    MOMEnumerateInterfaces { iface in
+      if iface.physicalUUID != nil { withUUID = iface; return .success }
+      return .continue
+    }
+    guard let allowed = withUUID, let allowedUUID = allowed.physicalUUID else {
+      try? XCTSkipIf(true, "no interface with a physicalUUID present")
+      return
+    }
+
+    let (q, c) = makeController(restrictTo: [allowedUUID.uuidString])
+    q.sync {
+      XCTAssertTrue(c._interfaceAllowed(allowed))
+      XCTAssertTrue(c._interfaceRestrictionPermits(allowed))
+
+      // A synthesized arrival pktinfo for the allowed address resolves back to
+      // a permitted interface.
+      let pi = Socket.pktInfo(interfaceIndex: 0, specDst: allowed.address)
+      XCTAssertTrue(c._interfaceRestrictionPermits(c._arrivalInterface(for: pi)))
+    }
+
+    // A restriction naming only an unrelated UUID denies the same interface.
+    let (q2, c2) = makeController(restrictTo: [UUID().uuidString])
+    q2.sync {
+      XCTAssertFalse(c2._interfaceAllowed(allowed))
+      XCTAssertFalse(c2._interfaceRestrictionPermits(allowed))
+    }
+  }
+
+  func testShouldRespondHonorsLocalInterfaceHardBind() {
+    let (q, c) = makeController()
+
+    let bound = Socket.ipv4Address(port: 0, address: 0x0100_000A)   // 10.0.0.1
+    let other = in_addr(s_addr: 0x0200_000A)                        // 10.0.0.2
+
+    q.sync {
+      // No hard bind, no restriction: respond regardless of arrival interface.
+      XCTAssertTrue(c._shouldRespondOnArrival(Socket.pktInfo(interfaceIndex: 0, specDst: other)))
+
+      // Hard bind: respond only to datagrams addressed to the bound address.
+      c._localInterfaceAddress = bound
+      XCTAssertTrue(c._shouldRespondOnArrival(Socket.pktInfo(interfaceIndex: 0, specDst: bound.sin_addr)))
+      XCTAssertFalse(c._shouldRespondOnArrival(Socket.pktInfo(interfaceIndex: 0, specDst: other)))
+    }
+  }
+
+  func testHardBindOverridesStaleUUIDRestriction() {
+    // A hard bind is authoritative: a leftover UUID allow-list (which doesn't
+    // name the bound interface) must not also filter, or it would block the
+    // very interface the caller bound to.
+    let (q, c) = makeController(restrictTo: [UUID().uuidString])
+    let bound = Socket.ipv4Address(port: 0, address: 0x0100_000A)
+    q.sync {
+      XCTAssertTrue(c._interfaceRestrictionActive)        // INADDR_ANY: filter applies
+      c._localInterfaceAddress = bound
+      XCTAssertFalse(c._interfaceRestrictionActive)       // hard bind: filter inert
+      XCTAssertTrue(c._shouldRespondOnArrival(Socket.pktInfo(interfaceIndex: 0, specDst: bound.sin_addr)))
+    }
+  }
 }
