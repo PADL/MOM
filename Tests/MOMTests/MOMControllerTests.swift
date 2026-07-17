@@ -233,7 +233,7 @@ final class MOMControllerTests: XCTestCase {
     let (q, c) = makeController()
 
     let bound = Socket.ipv4Address(port: 0, address: 0x0100_000A)   // 10.0.0.1
-    let other = in_addr(s_addr: 0x0200_000A)                        // 10.0.0.2
+    let other = Socket.ipv4Address(port: 0, address: 0x0200_000A).sin_addr  // 10.0.0.2
 
     q.sync {
       // No hard bind, no restriction: respond regardless of arrival interface.
@@ -243,6 +243,31 @@ final class MOMControllerTests: XCTestCase {
       c._localInterfaceAddress = bound
       XCTAssertTrue(c._shouldRespondOnArrival(Socket.pktInfo(interfaceIndex: 0, specDst: bound.sin_addr)))
       XCTAssertFalse(c._shouldRespondOnArrival(Socket.pktInfo(interfaceIndex: 0, specDst: other)))
+    }
+  }
+
+  func testShouldRespondHardBindResolvesBroadcastArrivalByIndex() {
+    // A received broadcast carries the broadcast address in `ipi_spec_dst`
+    // (the Windows case: it never equals an interface address), so a hard bind
+    // must fall back to the arrival interface index rather than reject it.
+    // Bind to a real interface: a broadcast that arrived on it (matched by
+    // index) is honored; one whose arrival index matches nothing fails closed.
+    var iface: MOMInterface?
+    MOMEnumerateInterfaces { i in iface = i; return .success }
+    guard let bound = iface else {
+      try? XCTSkipIf(true, "no interface present")
+      return
+    }
+
+    let (q, c) = makeController()
+    let broadcast = Socket.ipv4Address(port: 0, address: INADDR_BROADCAST.bigEndian).sin_addr
+    q.sync {
+      c._localInterfaceAddress = Socket.ipv4Address(port: 0, address: bound.address.s_addr)
+
+      XCTAssertTrue(c._shouldRespondOnArrival(
+        Socket.pktInfo(interfaceIndex: bound.index, specDst: broadcast)))
+      XCTAssertFalse(c._shouldRespondOnArrival(
+        Socket.pktInfo(interfaceIndex: .max, specDst: broadcast)))
     }
   }
 

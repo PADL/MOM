@@ -184,13 +184,18 @@ public final class MOMController: @unchecked Sendable {
   /// (`localInterfaceAddress`) — the UDP discovery socket is bound `INADDR_ANY`
   /// so it receives on every interface and must filter the announce/reply/echo
   /// paths in software — and the host-wide `restrictToInterfaceUUIDs` backstop.
-  /// Fails closed under an active UUID restriction when the arrival interface
-  /// can't be identified, so traffic can't leak off an excluded interface.
+  /// Both paths resolve the arrival interface via `ipi_ifindex` when a direct
+  /// address match fails, and fail closed when it can't be identified, so
+  /// traffic can't leak off an excluded interface.
   func _shouldRespondOnArrival(_ pktInfo: in_pktinfo) -> Bool {
-    if let local = _localInterfaceAddress,
-       local.sin_addr.s_addr != pktInfo.ipi_spec_dst.s_addr
-    {
-      return false
+    if let local = _localInterfaceAddress {
+      // Fast path: the request was addressed straight to the bound address
+      // (Darwin, and any unicast). A broadcast request instead carries the
+      // broadcast address in `ipi_spec_dst` (notably on Windows, where it never
+      // equals an interface address), so fall back to the ifindex-resolved
+      // arrival interface; fail closed if it can't be identified.
+      if local.sin_addr.s_addr == pktInfo.ipi_spec_dst.s_addr { return true }
+      return _arrivalInterface(for: pktInfo)?.address.s_addr == local.sin_addr.s_addr
     }
     guard _interfaceRestrictionActive else { return true }
     return _interfaceRestrictionPermits(_arrivalInterface(for: pktInfo))
